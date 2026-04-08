@@ -4,13 +4,14 @@ Jarvis Nebula is an AI assistant with a 3D spatial interface. The product vision
 
 ## Current Status
 
-This repository now includes the full Phase 0 scaffold.
+This repository now includes the full Phase 0 scaffold and a working Phase 1 frontend.
 
 - The main architecture and scope are defined in `PROJECT_PLAN.md`.
 - Frontend and backend manifests are in place.
 - Neo4j local infrastructure config is in place.
 - Lint, format, unit test, and end-to-end test configs are in place.
-- The next step is Phase 1 implementation: the static nebula and basic UI.
+- Phase 1 now renders a static 3D nebula with mouse navigation, node inspection, and a command bar.
+- The next step is Phase 2: connect the frontend to Neo4j-backed graph data and query flows.
 
 ## Locked Decisions
 
@@ -51,6 +52,26 @@ Important rules:
 - Only non-secret frontend values should use the `VITE_` prefix.
 
 ## Local Setup
+
+### Fastest Way To Preview Phase 1
+
+From the project root:
+
+```powershell
+npm run dev
+```
+
+This starts the frontend dev server and opens the browser automatically.
+
+### Full Local Launch
+
+If you want the frontend plus Neo4j and the backend scaffold together:
+
+```powershell
+npm run dev:full
+```
+
+This opens new PowerShell windows for the running services.
 
 ### Frontend
 
@@ -101,8 +122,8 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d
 
 ## What Happens Next
 
-Phase 0 is now scaffolded. The next implementation step is:
+Phase 1 is now implemented locally. The next implementation step is:
 
-1. Start Phase 1 in `frontend/` by building the static nebula scene and UI shell.
-2. Keep the backend in stub mode until Phase 2 begins.
-3. Use the health endpoint and WebSocket stub as the smoke-test foundation for the first implementation pass.
+1. Start Phase 2 by replacing the demo graph with Neo4j-backed data loading.
+2. Route text commands through the backend graph query contract.
+3. Keep the current frontend shell and backend health/WebSocket stubs as the baseline while graph integration lands.

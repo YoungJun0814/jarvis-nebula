@@ -1,0 +1,13 @@
+{
+  "name": "jarvis-nebula-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev -- --open",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:full": "powershell -ExecutionPolicy Bypass -File .\\scripts\\dev-full.ps1",
+    "build": "npm --prefix frontend run build",
+    "test": "npm --prefix frontend run test",
+    "test:e2e": "npm --prefix frontend run test:e2e",
+    "test:backend": "cd backend && python -m pytest"
+  }
+}
