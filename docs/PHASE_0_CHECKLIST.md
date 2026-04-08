@@ -34,11 +34,11 @@ Phase 0 is complete when the project is ready to begin Phase 1 without re-decidi
 ## Repository Preparation
 
 - [x] Create the repository layout described in `PROJECT_PLAN.md`.
-- [ ] Add frontend dependency manifest and base scripts.
-- [ ] Add backend dependency manifest and base scripts.
-- [ ] Add Docker Compose for Neo4j.
-- [ ] Add formatter and linter configuration.
-- [ ] Add Vitest, pytest, and Playwright configuration.
+- [x] Add frontend dependency manifest and base scripts.
+- [x] Add backend dependency manifest and base scripts.
+- [x] Add Docker Compose for Neo4j.
+- [x] Add formatter and linter configuration.
+- [x] Add Vitest, pytest, and Playwright configuration.
 - [x] Add a minimal startup-oriented `README.md`.
 
 ## Environment Preparation
@@ -47,7 +47,7 @@ Phase 0 is complete when the project is ready to begin Phase 1 without re-decidi
 - [x] Local `.env` is reviewed against the new variable names.
 - [x] `GEMINI_API_KEY` is set locally on the backend side.
 - [x] Neo4j credentials are set locally.
-- [ ] Optional frontend WebSocket override is confirmed or left at default.
+- [x] Optional frontend WebSocket override is confirmed or left at default.
 
 ## Implementation Start Gate
 
