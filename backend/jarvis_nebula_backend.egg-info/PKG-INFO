@@ -1,0 +1,20 @@
+Metadata-Version: 2.4
+Name: jarvis-nebula-backend
+Version: 0.1.0
+Summary: FastAPI backend scaffold for Jarvis Nebula.
+Requires-Python: >=3.11
+Requires-Dist: fastapi==0.135.3
+Requires-Dist: google-generativeai==0.8.6
+Requires-Dist: neo4j==6.1.0
+Requires-Dist: uvicorn[standard]==0.44.0
+Provides-Extra: dev
+Requires-Dist: httpx==0.28.1; extra == "dev"
+Requires-Dist: pytest==9.0.3; extra == "dev"
+Requires-Dist: ruff==0.15.9; extra == "dev"
+Provides-Extra: tracking
+Requires-Dist: mediapipe==0.10.33; extra == "tracking"
+Requires-Dist: opencv-python==4.13.0.92; extra == "tracking"
+Provides-Extra: voice
+Requires-Dist: edge-tts==7.2.8; extra == "voice"
+Requires-Dist: faster-whisper==1.2.1; extra == "voice"
+Requires-Dist: pyttsx3==2.99; extra == "voice"

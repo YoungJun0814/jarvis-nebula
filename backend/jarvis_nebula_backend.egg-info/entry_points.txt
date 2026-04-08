@@ -1,0 +1,2 @@
+[console_scripts]
+jarvis-nebula-api = app.main:main

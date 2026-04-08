@@ -34,6 +34,22 @@ const FOCUS_SCENE_VISUALS = {
   toneMappingExposure: 1.0,
 };
 
+const RENDER_CONFIG = {
+  sphereGeometryDetail: 0, // Performance: 0 = 12 verts, 1 = 42 verts. Huge savings for 500+ nodes.
+  linkTubularResolution: 3, // Performance: 3 is the minimum for a solid tube
+  bloomResolutionDivisor: 3, // Performance: reduces bloom pixel fill rate linearly
+  d3AlphaDecay: 0.05,
+  d3VelocityDecay: 0.4,
+  chargeStrength: -130,
+  linkDistance: 45,
+  controlsDamping: 0.08,
+  controlsMinDistance: 40,
+  controlsMaxDistance: 1600,
+  controlsRotateSpeed: 0.65,
+  controlsZoomSpeed: 0.85,
+  hoveredLinkColor: '#ffea00'
+};
+
 const geometryCache = new Map();
 const ORIGIN = Object.freeze({ x: 0, y: 0, z: 0 });
 const INITIAL_CAMERA = { x: 0, y: 28, z: 430 };
@@ -64,27 +80,27 @@ export function createNebulaScene({
       if (isSecondDegree) return 0.12 + link.weight * 0.16;
       return 0.1 + link.weight * 0.15;
     })
-    .linkResolution(4)
+    .linkResolution(RENDER_CONFIG.linkTubularResolution)
     .linkDirectionalParticles(0)
-    .d3AlphaDecay(0.05)
-    .d3VelocityDecay(0.4)
+    .d3AlphaDecay(RENDER_CONFIG.d3AlphaDecay)
+    .d3VelocityDecay(RENDER_CONFIG.d3VelocityDecay)
     .onNodeHover((node) => onNodeHover(node))
     .onNodeClick((node) => onNodeClick(node))
     .onBackgroundClick(() => onBackgroundClick());
 
   graph.cameraPosition(INITIAL_CAMERA, ORIGIN, 0);
 
-  graph.d3Force('charge').strength(-130);
-  graph.d3Force('link').distance(45);
+  graph.d3Force('charge').strength(RENDER_CONFIG.chargeStrength);
+  graph.d3Force('link').distance(RENDER_CONFIG.linkDistance);
 
   const controls = graph.controls();
   controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
+  controls.dampingFactor = RENDER_CONFIG.controlsDamping;
   controls.enablePan = false;
-  controls.minDistance = 40;
-  controls.maxDistance = 1600;
-  controls.rotateSpeed = 0.65;
-  controls.zoomSpeed = 0.85;
+  controls.minDistance = RENDER_CONFIG.controlsMinDistance;
+  controls.maxDistance = RENDER_CONFIG.controlsMaxDistance;
+  controls.rotateSpeed = RENDER_CONFIG.controlsRotateSpeed;
+  controls.zoomSpeed = RENDER_CONFIG.controlsZoomSpeed;
   controls.target.set(ORIGIN.x, ORIGIN.y, ORIGIN.z);
   controls.update();
 
@@ -257,7 +273,7 @@ function createNodeMesh(node, selectionState) {
 function getSphereGeometry(radius) {
   const key = radius.toFixed(1);
   if (!geometryCache.has(key)) {
-    geometryCache.set(key, new THREE.IcosahedronGeometry(radius, 1));
+    geometryCache.set(key, new THREE.IcosahedronGeometry(radius, RENDER_CONFIG.sphereGeometryDetail));
   }
 
   return geometryCache.get(key);
@@ -274,6 +290,15 @@ function getNodeVisuals(nodeId, state, isHovered) {
   const isSecondDegree = !isSelected && !isConnected && state.secondDegreeNodeIds?.has(nodeId);
   const hasSelection = !!state.selectedNodeId;
 
+  const isHoveredConnected = state.hoveredConnectedNodeIds?.has(nodeId);
+
+  if (isHovered) {
+    return { bright: 1.5, bloom: 2.5, opacity: 1.0, halo: 0.05, scale: 2.0, overrideColor: true };
+  }
+  if (isHoveredConnected) {
+    return { bright: 1.2, bloom: 1.0, opacity: 1.0, halo: 0.02, scale: 1.8, overrideColor: true };
+  }
+
   if (isSelected) {
     return { bright: 1.04, bloom: 1.0, opacity: 1.0, halo: 0.016, scale: 1.95 };
   }
@@ -286,25 +311,31 @@ function getNodeVisuals(nodeId, state, isHovered) {
   if (hasSelection) {
     return { bright: 0.45, bloom: 0.1, opacity: 0.2, halo: 0.0024, scale: 1.62 };
   }
+  
+  if (state.hoveredNodeId) {
+    return { bright: 0.45, bloom: 0.1, opacity: 0.3, halo: 0.005, scale: 1.62 };
+  }
+
   return { 
     bright: 1.0, 
-    bloom: isHovered ? 0.8 : 0.4, 
-    opacity: isHovered ? 1.0 : 0.96, 
-    halo: isHovered ? 0.02 : 0.012, 
-    scale: isHovered ? 1.78 : 1.62 
+    bloom: 0.4, 
+    opacity: 0.96, 
+    halo: 0.012, 
+    scale: 1.62 
   };
 }
 
 function getLinkVisuals(linkId, state) {
   const isSelected = state.selectedNodeId && state.connectedLinkIds?.has(linkId);
   const isSecondDegree = !isSelected && state.selectedNodeId && state.secondDegreeLinkIds?.has(linkId);
-  const isHovered = !state.selectedNodeId && state.hoveredNodeId && state.connectedLinkIds?.has(linkId);
+  const isHovered = state.hoveredNodeId && state.hoveredConnectedLinkIds?.has(linkId);
 
-  if (isSelected || isHovered) return { opacity: 1.0, glow: 3.5, boost: 2.5 };
-  if (isSecondDegree) return { opacity: 0.5, glow: 0.0, boost: 1.0 };
+  if (isHovered) return { opacity: 1.0, glow: 5.0, boost: 4.0, isHoveredLink: true };
+  if (isSelected) return { opacity: 1.0, glow: 3.5, boost: 2.5, isHoveredLink: false };
+  if (isSecondDegree) return { opacity: 0.5, glow: 0.0, boost: 1.0, isHoveredLink: false };
   
   // Completely hide links that are not connected to the selected/hovered node
-  return { opacity: 0.0, glow: 0.0, boost: 1.0 };
+  return { opacity: 0.0, glow: 0.0, boost: 1.0, isHoveredLink: false };
 }
 
 function decorateScene(scene) {
@@ -357,8 +388,8 @@ function configureBloom(graph, container) {
   }
 
   const composer = graph.postProcessingComposer();
-  const renderWidth = Math.max(1, Math.floor((container.clientWidth || window.innerWidth) / 2));
-  const renderHeight = Math.max(1, Math.floor((container.clientHeight || window.innerHeight) / 2));
+  const renderWidth = Math.max(1, Math.floor((container.clientWidth || window.innerWidth) / RENDER_CONFIG.bloomResolutionDivisor));
+  const renderHeight = Math.max(1, Math.floor((container.clientHeight || window.innerHeight) / RENDER_CONFIG.bloomResolutionDivisor));
 
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(renderWidth, renderHeight),
@@ -377,8 +408,8 @@ function updateBloom(graph, container) {
     return;
   }
 
-  const renderWidth = Math.max(1, Math.floor((container.clientWidth || window.innerWidth) / 2));
-  const renderHeight = Math.max(1, Math.floor((container.clientHeight || window.innerHeight) / 2));
+  const renderWidth = Math.max(1, Math.floor((container.clientWidth || window.innerWidth) / RENDER_CONFIG.bloomResolutionDivisor));
+  const renderHeight = Math.max(1, Math.floor((container.clientHeight || window.innerHeight) / RENDER_CONFIG.bloomResolutionDivisor));
   bloomPass.setSize(renderWidth, renderHeight);
 }
 
@@ -397,14 +428,16 @@ function applyNodeVisualState(object, node, selectionState) {
   const visuals = getNodeVisuals(node.id, selectionState, isHovered);
   const { coreMaterial, haloMaterial, ring, halo, baseColor } = object.userData;
 
+  const renderColor = visuals.overrideColor ? new THREE.Color(RENDER_CONFIG.hoveredLinkColor) : baseColor;
+
   coreMaterial.color.copy(new THREE.Color('#ffffff'));
-  coreMaterial.emissive.copy(baseColor).multiplyScalar(visuals.bright * 0.8);
+  coreMaterial.emissive.copy(renderColor).multiplyScalar(visuals.bright * 0.8);
   coreMaterial.emissiveIntensity = visuals.bloom;
   coreMaterial.opacity = visuals.opacity;
   coreMaterial.needsUpdate = true;
 
   halo.scale.setScalar(visuals.scale);
-  haloMaterial.color.copy(baseColor).multiplyScalar(Math.max(visuals.bright, visuals.scale > 1.8 ? 0.8 : 0.56));
+  haloMaterial.color.copy(renderColor).multiplyScalar(Math.max(visuals.bright, visuals.scale > 1.8 ? 0.8 : 0.56));
   haloMaterial.opacity = visuals.halo;
   haloMaterial.needsUpdate = true;
 
@@ -416,7 +449,11 @@ function applyLinkVisualState(object, link, selectionState) {
 
   const visuals = getLinkVisuals(link.id, selectionState);
   const rgb = LINK_VISUALS[link.kind]?.rgb ?? LINK_VISUALS.default.rgb;
-  const baseColor = new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
+  let baseColor = new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
+
+  if (visuals.isHoveredLink) {
+    baseColor = new THREE.Color(RENDER_CONFIG.hoveredLinkColor);
+  }
 
   object.visible = visuals.opacity > 0; // Remove from render tree if invisible (Massive GPU optimization)
 

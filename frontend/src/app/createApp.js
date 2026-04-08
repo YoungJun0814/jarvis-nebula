@@ -90,14 +90,26 @@ export function createApp(rootElement, options = {}) {
   const scene = graphFactory({
     container: refs.graphRoot,
     graphData,
-    getSelectionState: () => ({
-      selectedNodeId: state.selectedNode?.id ?? null,
-      hoveredNodeId: state.hoveredNode?.id ?? null,
-      connectedNodeIds: state.selectedNeighborIds,
-      connectedLinkIds: state.selectedLinkIds,
-      secondDegreeNodeIds: state.secondDegreeNeighborIds,
-      secondDegreeLinkIds: state.secondDegreeLinkIds,
-    }),
+    getSelectionState: () => {
+      let hoveredConnectedNodeIds = EMPTY_SET;
+      let hoveredConnectedLinkIds = EMPTY_SET;
+      
+      if (state.hoveredNode) {
+        hoveredConnectedNodeIds = selectionIndex.neighborIdsByNode.get(state.hoveredNode.id) ?? EMPTY_SET;
+        hoveredConnectedLinkIds = selectionIndex.linkIdsByNode.get(state.hoveredNode.id) ?? EMPTY_SET;
+      }
+
+      return {
+        selectedNodeId: state.selectedNode?.id ?? null,
+        hoveredNodeId: state.hoveredNode?.id ?? null,
+        connectedNodeIds: state.selectedNeighborIds,
+        connectedLinkIds: state.selectedLinkIds,
+        secondDegreeNodeIds: state.secondDegreeNeighborIds,
+        secondDegreeLinkIds: state.secondDegreeLinkIds,
+        hoveredConnectedNodeIds,
+        hoveredConnectedLinkIds,
+      };
+    },
     onNodeHover(node) {
       const nextNodeId = node?.id ?? null;
       const currentNodeId = state.hoveredNode?.id ?? null;
@@ -133,12 +145,19 @@ export function createApp(rootElement, options = {}) {
     },
   });
 
+  let pointerFrameId = null;
   refs.graphRoot.addEventListener('pointermove', (event) => {
     state.pointer = {
       x: event.clientX,
       y: event.clientY,
     };
-    renderTooltip(refs, state);
+
+    if (pointerFrameId) return;
+
+    pointerFrameId = requestAnimationFrame(() => {
+      renderTooltip(refs, state);
+      pointerFrameId = null;
+    });
   });
 
   refs.commandForm.addEventListener('submit', (event) => {

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "jarvis-nebula-backend"
 version = "0.1.0"
 description = "FastAPI backend scaffold for Jarvis Nebula."
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11"
 dependencies = [
   "fastapi==0.135.3",
   "google-generativeai==0.8.6",
