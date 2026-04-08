@@ -25,6 +25,7 @@
 8. [Development Phases](#8-development-phases)
 9. [Risk Matrix & Mitigations](#9-risk-matrix--mitigations)
 10. [Future Enhancements](#10-future-enhancements)
+11. [Implementation Readiness Specification](#11-implementation-readiness-specification)
 
 ---
 
@@ -68,99 +69,110 @@ The 3D "Data Nebula" is the **interface** through which the user sees and manipu
 
 ## 2. System Architecture
 
+The system is split into two layers connected via WebSocket:
+- **Python Backend** — handles all computation: camera capture, hand/pose tracking, AI agent, speech recognition, file operations, and database access.
+- **Browser Frontend** — handles all rendering: 3D nebula (Three.js), hand overlay (Canvas 2D), and UI panels.
+
+This split is essential because the AI agent needs **local filesystem access** (file read/write, code execution, web scraping) which browsers cannot provide due to sandboxing.
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        INPUT SOURCES                             │
-│               (all active simultaneously)                        │
+│                   PYTHON BACKEND (FastAPI)                        │
 │                                                                  │
-│  ┌──────────┐ ┌──────────┐ ┌───────────┐ ┌───────────────────┐  │
-│  │ MediaPipe│ │ MediaPipe│ │ Microphone│ │  Mouse / Keyboard │  │
-│  │  Hands   │ │   Pose   │ │ + Whisper │ │  (always active)  │  │
-│  │(21 joint)│ │(33 joint)│ │  (STT)    │ │                   │  │
-│  └────┬─────┘ └────┬─────┘ └─────┬─────┘ └────────┬──────────┘  │
-│       │            │             │                 │             │
-│       ▼            ▼             ▼                 ▼             │
+│  ┌─────────────── INPUT CAPTURE ──────────────────────────┐     │
+│  │                                                         │     │
+│  │  ┌──────────┐ ┌──────────┐ ┌─────────────────────────┐ │     │
+│  │  │ OpenCV   │ │ OpenCV   │ │ Microphone              │ │     │
+│  │  │ Webcam   │ │ Webcam   │ │ + Whisper (local)       │ │     │
+│  │  │    ↓     │ │    ↓     │ │ + faster-whisper        │ │     │
+│  │  │MediaPipe │ │MediaPipe │ │   (offline STT)         │ │     │
+│  │  │  Hands   │ │  Pose    │ │                         │ │     │
+│  │  │(21 joint)│ │(33 joint)│ │                         │ │     │
+│  │  └────┬─────┘ └────┬─────┘ └───────────┬─────────────┘ │     │
+│  │       │            │                   │               │     │
+│  └───────┼────────────┼───────────────────┼───────────────┘     │
+│          │            │                   │                      │
+│          ▼            ▼                   ▼                      │
 │  ┌─────────────────────────────────────────────────────────┐     │
-│  │                  INPUT MERGING LAYER                     │     │
+│  │              INPUT PROCESSING LAYER (Python)             │     │
 │  │                                                         │     │
 │  │  Gesture Classifier ◄── Distance Calculator (Pose)     │     │
-│  │  Mouse/KB Handler                                       │     │
-│  │  Text Input Handler                                     │     │
+│  │  Voice Command Parser (Whisper → text)                  │     │
 │  │                                                         │     │
 │  │  Merge Rule: last active input wins for camera/select   │     │
 │  │  Text input & voice: always available in parallel       │     │
 │  └──────────────────────────┬──────────────────────────────┘     │
-└─────────────────────────────┼───────────────────────────────────┘
-                              │
-          ┌───────────────────┼───────────────────┐
-          │                   │                   │
-          ▼                   ▼                   ▼
-┌──────────────┐   ┌──────────────────┐   ┌──────────────────┐
-│   Spatial    │   │  Command Router  │   │  Direct UI       │
-│  Navigation  │   │                  │   │  Actions         │
-│  (camera,    │   │  Classifies:     │   │  (reset, zoom,   │
-│   select,    │   │  - Graph query   │   │   undo, help)    │
-│   drag)      │   │  - Agent task    │   │                  │
-│              │   │  - UI command    │   │                  │
-└──────┬───────┘   └────────┬─────────┘   └──────┬───────────┘
-       │                    │                     │
-       │         ┌──────────┴──────────┐          │
-       │         │                     │          │
-       │         ▼                     ▼          │
-       │  ┌─────────────┐   ┌──────────────────┐  │
-       │  │  Graph      │   │   AI AGENT CORE  │  │
-       │  │  Query      │   │                  │  │
-       │  │ (Neo4j      │   │  Intent Parser   │  │
-       │  │  Cypher)    │   │  Task Planner    │  │
-       │  │             │   │  Context Manager │  │
-       │  └──────┬──────┘   └────────┬─────────┘  │
-       │         │                   │             │
-       │         │                   ▼             │
-       │         │         ┌──────────────────┐    │
-       │         │         │  AGENT EXECUTOR  │    │
-       │         │         │  (Tool Use)      │    │
-       │         │         │                  │    │
-       │         │         │  OpenClaw /      │    │
-       │         │         │  NemoClaw /      │    │
-       │         │         │  Custom Tools    │    │
-       │         │         │                  │    │
-       │         │         │  ┌────────────┐  │    │
-       │         │         │  │ File Ops   │  │    │
-       │         │         │  │ Code Exec  │  │    │
-       │         │         │  │ Web Search │  │    │
-       │         │         │  │ API Calls  │  │    │
-       │         │         │  │ Data Pipe  │  │    │
-       │         │         │  └────────────┘  │    │
-       │         │         └────────┬─────────┘    │
-       │         │                  │               │
-       ▼         ▼                  ▼               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      RENDERING LAYER                             │
+│                              │                                    │
+│          ┌───────────────────┼───────────────────┐               │
+│          │                   │                   │               │
+│          ▼                   ▼                   ▼               │
+│  ┌──────────────┐  ┌──────────────────┐  ┌──────────────────┐   │
+│  │  Gesture     │  │  Command Router  │  │  Direct UI       │   │
+│  │  Events      │  │                  │  │  Commands        │   │
+│  │  (sent to    │  │  Classifies:     │  │  (sent to        │   │
+│  │   browser)   │  │  - Graph query   │  │   browser)       │   │
+│  │              │  │  - Agent task    │  │                  │   │
+│  │              │  │  - UI command    │  │                  │   │
+│  └──────┬───────┘  └────────┬─────────┘  └──────┬───────────┘   │
+│         │                   │                    │               │
+│         │        ┌──────────┴──────────┐         │               │
+│         │        │                     │         │               │
+│         │        ▼                     ▼         │               │
+│         │ ┌─────────────┐  ┌──────────────────┐  │               │
+│         │ │  Graph      │  │   AI AGENT CORE  │  │               │
+│         │ │  Query      │  │   (Gemini API)   │  │               │
+│         │ │ (Neo4j      │  │                  │  │               │
+│         │ │  Cypher)    │  │  Intent Parser   │  │               │
+│         │ │             │  │  Task Planner    │  │               │
+│         │ └──────┬──────┘  │  Context Manager │  │               │
+│         │        │         └────────┬─────────┘  │               │
+│         │        │                  │             │               │
+│         │        │                  ▼             │               │
+│         │        │       ┌──────────────────┐    │               │
+│         │        │       │  AGENT EXECUTOR  │    │               │
+│         │        │       │  (Gemini Func    │    │               │
+│         │        │       │   Calling +      │    │               │
+│         │        │       │   Python Tools)  │    │               │
+│         │        │       │                  │    │               │
+│         │        │       │  ┌────────────┐  │    │               │
+│         │        │       │  │ File Ops   │  │    │               │
+│         │        │       │  │ Code Exec  │  │    │               │
+│         │        │       │  │ Web Search │  │    │               │
+│         │        │       │  │ API Calls  │  │    │               │
+│         │        │       │  │ Data Pipe  │  │    │               │
+│         │        │       │  └────────────┘  │    │               │
+│         │        │       └────────┬─────────┘    │               │
+│         │        │                │               │               │
+│  ┌──────┴────────┴────────────────┴───────────────┴────────┐     │
+│  │                     DATA LAYER                           │     │
+│  │  ┌──────────────────────────────────────────────────┐   │     │
+│  │  │                 Neo4j (Graph DB)                  │   │     │
+│  │  │  Nodes: (:Entity {name, type, metadata})         │   │     │
+│  │  │  Edges: [:RELATES_TO {weight, type}]             │   │     │
+│  │  │  + Agent memory (task history, preferences)      │   │     │
+│  │  └──────────────────────────────────────────────────┘   │     │
+│  └─────────────────────────────────────────────────────────┘     │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+                    WebSocket (ws://localhost:8000/ws)
+                    JSON messages: landmarks, gestures,
+                    commands, graph data, agent status
+                           │
+┌──────────────────────────┴──────────────────────────────────────┐
+│                   BROWSER FRONTEND (Vite + JS)                   │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │                  3D RENDERING ENGINE                        │  │
 │  │  Three.js + 3d-force-graph + Post-processing               │  │
 │  ├────────────────────────────────────────────────────────────┤  │
 │  │  Hand Overlay (Canvas 2D) — skeleton, laser, state labels  │  │
+│  │  (receives landmark data from Python via WebSocket)        │  │
 │  ├────────────────────────────────────────────────────────────┤  │
 │  │  Agent Status Panel — current task, progress, plan display │  │
 │  ├────────────────────────────────────────────────────────────┤  │
 │  │  Text Input Bar — always visible, type commands anytime    │  │
+│  │  Mouse / Keyboard — always active, first-class input       │  │
 │  └────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        DATA LAYER                                │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │                     Neo4j (Graph DB)                      │   │
-│  │  Nodes: (:Entity {name, type, metadata, embedding})      │   │
-│  │  Edges: [:RELATES_TO {weight, type}]                     │   │
-│  │                                                          │   │
-│  │  + Agent memory: task history, user preferences,         │   │
-│  │    conversation context stored as graph relationships    │   │
-│  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -168,21 +180,32 @@ The 3D "Data Nebula" is the **interface** through which the user sees and manipu
 
 ## 3. Tech Stack
 
+### Backend (Python)
+
+| Layer | Technology | Role | License |
+|-------|-----------|------|---------|
+| **Web Server** | FastAPI | REST API + WebSocket server | MIT |
+| **WebSocket** | websockets (via FastAPI) | Real-time bidirectional communication with browser | MIT |
+| **Camera Capture** | OpenCV (cv2) | Webcam frame capture and preprocessing | Apache 2.0 |
+| **Hand Tracking** | MediaPipe (Python) HandLandmarker | 21 hand joint 3D coordinates per hand | Apache 2.0 |
+| **Body Pose** | MediaPipe (Python) PoseLandmarker | 33 body landmarks (chest distance calc) | Apache 2.0 |
+| **Voice-to-Text** | faster-whisper (local) | Offline speech recognition, no internet needed | MIT |
+| **LLM (Brain)** | Gemini API (google-generativeai) | Intent parsing, task planning, Cypher gen, function calling | API (free tier via Google Pro) |
+| **Agent Executor** | Custom Python + Gemini Function Calling | Execute real-world actions (file, code, web, API) on local system | Custom |
+| **Graph Database** | Neo4j Community (neo4j Python driver) | Node/edge storage, Cypher queries, agent memory | GPL v3 (Community) |
+| **Text-to-Speech** | pyttsx3 or edge-tts | Agent speaks responses back to user (offline capable) | MIT |
+
+### Frontend (Browser — JavaScript)
+
 | Layer | Technology | Role | License |
 |-------|-----------|------|---------|
 | **3D Rendering** | Three.js | WebGL scene, camera, lighting, meshes | MIT |
 | **Graph Physics** | 3d-force-graph | Force-directed layout, node/edge rendering | MIT |
 | **Post-processing** | three/postprocessing | Bloom, glow effects (nebula aesthetic) | MIT |
-| **Animation** | GSAP or tween.js | Smooth camera transitions, node animations | GSAP: free for non-commercial / tween.js: MIT |
-| **Hand Tracking** | MediaPipe Hands | 21 hand joint 3D coordinates per hand | Apache 2.0 |
-| **Body Pose** | MediaPipe Pose | 33 body landmarks (chest distance calc) | Apache 2.0 |
-| **Voice-to-Text** | OpenAI Whisper API | Speech recognition for commands | API (paid) |
-| **LLM (Brain)** | GPT-4o API or Ollama (local) | Intent parsing, task planning, Cypher gen | API (paid) / Ollama: MIT |
-| **Agent Executor** | OpenClaw / NemoClaw | Execute real-world actions (file, code, web, API) | Open source |
-| **Graph Database** | Neo4j Community | Node/edge storage, Cypher queries, agent memory | GPL v3 (Community) |
-| **Frontend** | Vanilla JS or React | UI shell, event bus, state management | MIT |
+| **Animation** | tween.js | Smooth camera transitions, node animations | MIT |
+| **Frontend** | Vanilla JS | UI shell, event bus, state management | — |
 | **Build Tool** | Vite | Fast dev server, HMR, bundling | MIT |
-| **Text-to-Speech** | Web Speech API or ElevenLabs | Agent speaks responses back to user | Free / API (paid) |
+| **WebSocket Client** | Native WebSocket API | Receive landmarks, send commands to Python backend | Built-in |
 
 ---
 
@@ -253,13 +276,13 @@ After initial placement, the force-directed algorithm takes over and repositions
 
 ### 4.2 Hand Tracking & Gesture System
 
-**Purpose:** Track hands via webcam and classify gestures into discrete actions. Coexists with mouse — both are always active.
+**Purpose:** Track hands via webcam (Python backend) and classify gestures into discrete actions. Landmark data is sent to the browser via WebSocket. Coexists with mouse — both are always active.
 
 **Open-source handles:**
-- Hand detection and 21-landmark extraction (MediaPipe Hands)
-- Runs entirely in the browser via WebAssembly/WebGL
+- Hand detection and 21-landmark extraction (MediaPipe Python — HandLandmarker)
+- Runs on the Python backend using OpenCV for camera capture
 
-**Custom development — Gesture Classifier:**
+**Custom development — Gesture Classifier (Python):**
 
 MediaPipe only outputs raw coordinates. We must build the classifier that interprets them.
 
@@ -288,17 +311,15 @@ MediaPipe only outputs raw coordinates. We must build the classifier that interp
 
 Each gesture is defined by finger state detection:
 
-```javascript
-// Finger extension detection
-function isFingerExtended(landmarks, finger) {
-  const tip = landmarks[fingerTips[finger]];
-  const pip = landmarks[fingerPIPs[finger]];
+```python
+# Finger extension detection (Python — runs on backend)
+def is_finger_extended(landmarks, finger: str) -> bool:
+    tip = landmarks[FINGER_TIPS[finger]]
+    pip = landmarks[FINGER_PIPS[finger]]
 
-  if (finger === 'thumb') {
-    return Math.abs(tip.x - landmarks[0].x) > Math.abs(pip.x - landmarks[0].x);
-  }
-  return tip.y < pip.y; // In screen coords, y increases downward
-}
+    if finger == 'thumb':
+        return abs(tip.x - landmarks[0].x) > abs(pip.x - landmarks[0].x)
+    return tip.y < pip.y  # In screen coords, y increases downward
 ```
 
 | Gesture | Detection Logic | Action |
@@ -312,28 +333,27 @@ function isFingerExtended(landmarks, finger) {
 
 #### Smoothing & Debouncing
 
-```javascript
-// Exponential Moving Average (EMA) for position smoothing
-const SMOOTHING = 0.7;
-smoothed.x = SMOOTHING * smoothed.x + (1 - SMOOTHING) * raw.x;
-smoothed.y = SMOOTHING * smoothed.y + (1 - SMOOTHING) * raw.y;
-smoothed.z = SMOOTHING * smoothed.z + (1 - SMOOTHING) * raw.z;
+```python
+# Exponential Moving Average (EMA) for position smoothing
+SMOOTHING = 0.7
+smoothed.x = SMOOTHING * smoothed.x + (1 - SMOOTHING) * raw.x
+smoothed.y = SMOOTHING * smoothed.y + (1 - SMOOTHING) * raw.y
+smoothed.z = SMOOTHING * smoothed.z + (1 - SMOOTHING) * raw.z
 ```
 
-```javascript
-// Gesture state machine — prevents flickering
-const GESTURE_HOLD_FRAMES = 5;
-const GESTURE_RELEASE_FRAMES = 8;
-// States: IDLE → PENDING → ACTIVE → RELEASING → IDLE
+```python
+# Gesture state machine — prevents flickering
+GESTURE_HOLD_FRAMES = 5
+GESTURE_RELEASE_FRAMES = 8
+# States: IDLE → PENDING → ACTIVE → RELEASING → IDLE
 ```
 
 #### Confidence Filtering
 
-```javascript
-if (hand.score < 0.75) {
-  return; // Skip this frame, keep last known state
-  // Mouse/keyboard remain fully functional during low-confidence frames
-}
+```python
+if hand.score < 0.75:
+    continue  # Skip this frame, keep last known state
+    # Mouse/keyboard remain fully functional during low-confidence frames
 ```
 
 ---
@@ -343,59 +363,56 @@ if (hand.score < 0.75) {
 **Purpose:** Use chest (pit of stomach) as an anchor point. The distance from chest to hand modulates gesture sensitivity.
 
 **Open-source handles:**
-- 33 upper-body landmarks (MediaPipe Pose)
-- Runs alongside MediaPipe Hands sharing the same webcam feed
+- 33 upper-body landmarks (MediaPipe Python — PoseLandmarker)
+- Runs alongside HandLandmarker on the Python backend, sharing the same OpenCV webcam feed
 
-**Custom development — Distance Calculator:**
+**Custom development — Distance Calculator (Python):**
 
 #### Chest Anchor Estimation
 
-```javascript
-const LEFT_SHOULDER = 11;
-const RIGHT_SHOULDER = 12;
-const LEFT_HIP = 23;
-const RIGHT_HIP = 24;
+```python
+LEFT_SHOULDER = 11
+RIGHT_SHOULDER = 12
+LEFT_HIP = 23
+RIGHT_HIP = 24
 
-function getChestAnchor(poseLandmarks) {
-  const shoulderCenter = midpoint(
-    poseLandmarks[LEFT_SHOULDER],
-    poseLandmarks[RIGHT_SHOULDER]
-  );
-  const hipCenter = midpoint(
-    poseLandmarks[LEFT_HIP],
-    poseLandmarks[RIGHT_HIP]
-  );
-  // Chest ≈ 30% down from shoulders toward hips
-  return lerp(shoulderCenter, hipCenter, 0.3);
-}
+def get_chest_anchor(pose_landmarks):
+    shoulder_center = midpoint(
+        pose_landmarks[LEFT_SHOULDER],
+        pose_landmarks[RIGHT_SHOULDER]
+    )
+    hip_center = midpoint(
+        pose_landmarks[LEFT_HIP],
+        pose_landmarks[RIGHT_HIP]
+    )
+    # Chest ≈ 30% down from shoulders toward hips
+    return lerp(shoulder_center, hip_center, 0.3)
 ```
 
 #### Distance-to-Sensitivity Mapping
 
-```javascript
-function getSensitivityScale(handPosition, chestAnchor, shoulderWidth) {
-  const distance = euclideanDistance(handPosition, chestAnchor);
-  const normalizedDist = distance / shoulderWidth;
+```python
+def get_sensitivity_scale(hand_position, chest_anchor, shoulder_width):
+    distance = euclidean_distance(hand_position, chest_anchor)
+    normalized_dist = distance / shoulder_width
 
-  if (normalizedDist < 0.5) return 0.3;   // CLOSE — precision mode
-  if (normalizedDist < 1.2) return 1.0;   // NORMAL — standard
-  return 2.5;                              // FAR — fast mode
-}
+    if normalized_dist < 0.5: return 0.3   # CLOSE — precision mode
+    if normalized_dist < 1.2: return 1.0   # NORMAL — standard
+    return 2.5                              # FAR — fast mode
 ```
 
 #### Idle Detection
 
-```javascript
-// Both hands close to chest + stationary for 2 seconds = gesture IDLE
-// Mouse/keyboard remain fully active during gesture idle state
-if (bothHandsNearChest && handVelocity < IDLE_THRESHOLD && idleDuration > 2000) {
-  gestureState = 'IDLE'; // Only gesture input paused, not other inputs
-}
+```python
+# Both hands close to chest + stationary for 2 seconds = gesture IDLE
+# Mouse/keyboard remain fully active during gesture idle state
+if both_hands_near_chest and hand_velocity < IDLE_THRESHOLD and idle_duration > 2.0:
+    gesture_state = 'IDLE'  # Only gesture input paused, not other inputs
 ```
 
 #### Performance Note
 
-MediaPipe Pose (Lite model) adds ~5-8ms per frame. If combined MediaPipe processing exceeds 25ms/frame, disable Pose and use fixed gesture sensitivity. Mouse/keyboard are unaffected by MediaPipe performance.
+MediaPipe Pose (Lite model) adds ~5-8ms per frame on the Python backend. If combined MediaPipe processing exceeds 25ms/frame, disable Pose and use fixed gesture sensitivity. Mouse/keyboard in the browser are completely unaffected by backend performance.
 
 ---
 
@@ -403,7 +420,9 @@ MediaPipe Pose (Lite model) adds ~5-8ms per frame. If combined MediaPipe process
 
 **Purpose:** Show a transparent hand skeleton on screen so the user knows exactly where their hand is being tracked, what gesture is recognized, and where they're pointing.
 
-**Custom development (entirely):**
+**Data flow:** Python backend sends landmark coordinates + gesture state via WebSocket → Browser draws overlay.
+
+**Custom development (browser-side rendering, data from Python):**
 
 #### Layer Architecture
 
@@ -470,115 +489,117 @@ MediaPipe Pose (Lite model) adds ~5-8ms per frame. If combined MediaPipe process
 **Purpose:** Accept natural language commands via voice OR text. Route them to graph queries, UI actions, or the AI agent for real-world task execution.
 
 **Open-source handles:**
-- Speech-to-text (Whisper API)
-- Natural language understanding (GPT-4o or Ollama)
-- Cypher query execution (Neo4j driver)
+- Speech-to-text: **faster-whisper** (runs locally on Python backend, no internet needed)
+- Natural language understanding: **Gemini API** (google-generativeai Python SDK)
+- Cypher query execution: **neo4j** Python driver
 
-**Custom development:**
+**Custom development (Python backend):**
 
 #### Input Methods (All Always Available)
 
 | Method | Activation | Use Case |
 |--------|-----------|----------|
 | **Voice (Push-to-Talk)** | Left-hand pinch gesture (G8) | Hands-free commanding while manipulating nebula |
-| **Voice (Wake Word)** | "Hey Nebula" (Porcupine) | When hands are not tracked |
-| **Text Input Bar** | Click or keyboard shortcut (/) | Precise commands, code snippets, long queries |
+| **Voice (Wake Word)** | "Hey Nebula" (custom keyword spotter) | When hands are not tracked |
+| **Text Input Bar** | Click or keyboard shortcut (/) in browser | Precise commands, code snippets, long queries |
 | **Text + Keyboard** | Always focused when typing | Traditional input, copy-paste, editing |
 
 #### Three-Way Command Classification
 
 The Command Router must now classify into **three** categories, not two:
 
-```javascript
-function routeCommand(transcript) {
-  const normalized = transcript.toLowerCase().trim();
+```python
+def route_command(transcript: str) -> dict:
+    normalized = transcript.lower().strip()
 
-  // 1. UI Commands — instant, no LLM needed
-  const uiAction = matchUICommand(normalized);
-  if (uiAction) return { type: 'ui', action: uiAction };
+    # 1. UI Commands — instant, no LLM needed
+    ui_action = match_ui_command(normalized)
+    if ui_action:
+        return {'type': 'ui', 'action': ui_action}
 
-  // 2. Graph Queries — "show me", "find", "connect", "path between"
-  //    Keywords that imply data lookup, not action
-  if (isGraphQuery(normalized)) return { type: 'graph', query: normalized };
+    # 2. Graph Queries — "show me", "find", "connect", "path between"
+    #    Keywords that imply data lookup, not action
+    if is_graph_query(normalized):
+        return {'type': 'graph', 'query': normalized}
 
-  // 3. Agent Tasks — everything else (the default)
-  //    "Write a report on...", "Send an email to...",
-  //    "Analyze this data...", "Create a file..."
-  return { type: 'agent', task: normalized };
+    # 3. Agent Tasks — everything else (the default)
+    #    "Write a report on...", "Send an email to...",
+    #    "Analyze this data...", "Create a file..."
+    return {'type': 'agent', 'task': normalized}
+
+UI_COMMANDS = {
+    'reset': 'camera_reset',
+    'zoom out': 'camera_zoom_out',
+    'zoom in': 'camera_zoom_in',
+    'show all': 'graph_show_all',
+    'undo': 'state_undo',
+    'help': 'show_help',
+    'stop': 'agent_cancel',
+    'confirm': 'agent_confirm',
+    'reject': 'agent_reject',
 }
 
-const UI_COMMANDS = {
-  'reset': () => camera.resetPosition(),
-  'zoom out': () => camera.zoomTo(DEFAULT_FOV),
-  'zoom in': () => camera.zoomTo(CLOSE_FOV),
-  'show all': () => graph.showAllNodes(),
-  'undo': () => stateManager.undo(),
-  'help': () => ui.showHelpOverlay(),
-  'stop': () => agent.cancelCurrentTask(),
-  'confirm': () => agent.confirmPendingAction(),
-  'reject': () => agent.rejectPendingAction()
-};
-
-function isGraphQuery(text) {
-  const graphKeywords = [
+GRAPH_KEYWORDS = [
     'show me', 'find', 'connections to', 'path between',
     'related to', 'linked to', 'top connected', 'filter',
     'how many', 'list all', 'nodes of type'
-  ];
-  return graphKeywords.some(kw => text.includes(kw));
-}
+]
+
+def is_graph_query(text: str) -> bool:
+    return any(kw in text for kw in GRAPH_KEYWORDS)
 ```
 
 #### Graph Query Pipeline (same as before)
 
-```javascript
-async function handleGraphQuery(userQuery) {
-  const cypher = await generateCypherFromLLM(userQuery);
-  validateCypher(cypher); // Block write operations
-  const results = await neo4j.run(cypher);
-  return mapResultsToVisuals(results);
-}
+```python
+async def handle_graph_query(user_query: str):
+    cypher = await generate_cypher_from_llm(user_query)
+    validate_cypher(cypher)  # Block write operations
+    results = neo4j_driver.run(cypher)
+    return map_results_to_visuals(results)
 ```
 
-#### Agent Task Pipeline (NEW)
+#### Agent Task Pipeline
 
-```javascript
-async function handleAgentTask(userTask) {
-  // 1. AI Agent Core parses intent and creates a plan
-  const plan = await agentCore.planTask(userTask);
+```python
+async def handle_agent_task(user_task: str):
+    # 1. AI Agent Core parses intent and creates a plan
+    plan = await agent_core.plan_task(user_task)
 
-  // 2. Show plan in Agent Status Panel + create task nodes in nebula
-  ui.showPlan(plan);
-  nebula.createTaskNodes(plan.steps);
+    # 2. Send plan to browser via WebSocket for display in nebula
+    await ws.send_json({'type': 'plan', 'data': plan})
 
-  // 3. Wait for user confirmation (voice "confirm" or click)
-  if (plan.requiresConfirmation) {
-    await waitForUserConfirmation();
-  }
+    # 3. Wait for user confirmation (voice "confirm" or click in browser)
+    if plan['requires_confirmation']:
+        await wait_for_user_confirmation()
 
-  // 4. Execute via Agent Executor
-  for (const step of plan.steps) {
-    nebula.updateTaskNode(step.id, 'running');
-    const result = await agentExecutor.execute(step);
-    nebula.updateTaskNode(step.id, result.success ? 'complete' : 'failed');
+    # 4. Execute via Gemini Function Calling + Python tools
+    for step in plan['steps']:
+        await ws.send_json({'type': 'task_update', 'id': step['id'], 'status': 'running'})
+        result = await agent_executor.execute(step)
+        status = 'complete' if result['success'] else 'failed'
+        await ws.send_json({'type': 'task_update', 'id': step['id'], 'status': status})
 
-    // Feed results back into Neo4j as new knowledge
-    if (result.newEntities) {
-      await neo4j.ingestEntities(result.newEntities);
-      nebula.refreshGraph();
-    }
-  }
+        # Feed results back into Neo4j as new knowledge
+        if result.get('new_entities'):
+            await neo4j_ingest_entities(result['new_entities'])
+            await ws.send_json({'type': 'graph_refresh'})
 
-  // 5. Speak summary back to user
-  tts.speak(plan.summary);
-}
+    # 5. Speak summary back to user (via Python TTS)
+    tts.speak(plan['summary'])
 ```
 
-#### LLM → Cypher Pipeline
+#### LLM → Cypher Pipeline (Gemini API)
 
-```javascript
-async function generateCypherFromLLM(userQuery) {
-  const systemPrompt = `
+```python
+import google.generativeai as genai
+import re
+
+genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+model = genai.GenerativeModel('gemini-2.0-flash')
+
+async def generate_cypher_from_llm(user_query: str) -> str:
+    system_prompt = """
     You are a Neo4j Cypher query generator.
 
     SCHEMA:
@@ -603,17 +624,15 @@ async function generateCypherFromLLM(userQuery) {
 
     User: "What are the top 5 most connected nodes?"
     Cypher: MATCH (n:Entity)-[r:RELATES_TO]-() RETURN n.name, count(r) AS connections ORDER BY connections DESC LIMIT 5
-  `;
+    """
 
-  const response = await llm.chat(systemPrompt, userQuery);
-  const cypher = extractCypherFromResponse(response);
+    response = model.generate_content(f"{system_prompt}\n\nUser: {user_query}")
+    cypher = extract_cypher_from_response(response.text)
 
-  if (/\b(DELETE|DETACH|CREATE|SET|MERGE|REMOVE)\b/i.test(cypher)) {
-    throw new Error('Write operations are not allowed via voice/text query');
-  }
+    if re.search(r'\b(DELETE|DETACH|CREATE|SET|MERGE|REMOVE)\b', cypher, re.IGNORECASE):
+        raise ValueError('Write operations are not allowed via voice/text query')
 
-  return cypher;
-}
+    return cypher
 ```
 
 #### Visual Feedback for All Command Types
@@ -635,9 +654,9 @@ async function generateCypherFromLLM(userQuery) {
 
 **Open-source handles:**
 - Storage, indexing, Cypher execution (Neo4j)
-- JavaScript driver (`neo4j-driver`)
+- Python driver (`neo4j` package)
 
-**Custom development:**
+**Custom development (Python backend → WebSocket → Browser):**
 
 #### Schema Design
 
@@ -679,36 +698,43 @@ FOR (e:Entity) REQUIRE e.name IS UNIQUE;
 // (:Entity)-[:MENTIONED_IN]->(:Task)    — reverse lookup
 ```
 
-#### Data Sync: Neo4j → 3d-force-graph
+#### Data Sync: Neo4j → WebSocket → 3d-force-graph
 
-```javascript
-async function loadGraphData() {
-  const result = await neo4j.run(`
-    MATCH (n)
-    WHERE n:Entity OR n:Task
-    OPTIONAL MATCH (n)-[r]-(m)
-    RETURN n, r, m
-  `);
+```python
+# Python backend loads graph and sends to browser via WebSocket
+from neo4j import GraphDatabase
 
-  const nodes = [];
-  const links = [];
-  const nodeMap = new Map();
+driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "jarvis-nebula"))
 
-  result.records.forEach(record => {
-    const n = record.get('n');
-    if (!nodeMap.has(n.identity.toString())) {
-      nodeMap.set(n.identity.toString(), {
-        id: n.identity.toString(),
-        name: n.properties.name || n.properties.command,
-        type: n.properties.type || n.properties.status,
-        connections: 0
-      });
-    }
-    // ... build links array
-  });
+async def load_graph_data() -> dict:
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (n)
+            WHERE n:Entity OR n:Task
+            OPTIONAL MATCH (n)-[r]-(m)
+            RETURN n, r, m
+        """)
 
-  return { nodes: [...nodeMap.values()], links };
-}
+        nodes = []
+        links = []
+        node_map = {}
+
+        for record in result:
+            n = record['n']
+            node_id = str(n.element_id)
+            if node_id not in node_map:
+                node_map[node_id] = {
+                    'id': node_id,
+                    'name': n.get('name', n.get('command', '')),
+                    'type': n.get('type', n.get('status', 'default')),
+                    'connections': 0
+                }
+            # ... build links array
+
+    return {'nodes': list(node_map.values()), 'links': links}
+
+# Send to browser via WebSocket
+await ws.send_json({'type': 'graph_data', 'data': await load_graph_data()})
 ```
 
 #### Caching Strategy
@@ -724,7 +750,12 @@ async function loadGraphData() {
 
 **Purpose:** Allow all input methods (gesture, mouse, keyboard, voice, text) to work simultaneously without conflict. There is NO fallback mode — all inputs are first-class citizens at all times.
 
-**Custom development (entirely):**
+**Split architecture:**
+- **Gesture data** arrives from Python backend via WebSocket (hand landmarks + classified gesture)
+- **Mouse/keyboard** handled natively in the browser (no backend involvement)
+- **Voice/text commands** sent to Python backend via WebSocket for processing
+
+**Custom development (browser-side merging, data from both sources):**
 
 #### Merge Strategy: "Last Active Wins" for Spatial, "Always On" for Commands
 
@@ -820,10 +851,10 @@ Mouse (scroll) → Zoom (real-time, every frame)
 **This is NOT a graph query engine — it's a general-purpose AI assistant that happens to use a 3D nebula as its interface.**
 
 **Open-source handles:**
-- LLM inference (GPT-4o API or Ollama)
-- Prompt management (LangChain or custom)
+- LLM inference: **Gemini API** (google-generativeai Python SDK, with function calling)
+- Prompt management: Custom Python (no framework needed)
 
-**Custom development:**
+**Custom development (Python backend):**
 
 #### Responsibilities
 
@@ -837,47 +868,50 @@ Mouse (scroll) → Zoom (real-time, every frame)
 
 The Agent Core builds a rich context for every LLM call:
 
-```javascript
-function buildAgentContext(userCommand) {
-  return {
-    // What the user said
-    command: userCommand,
+```python
+def build_agent_context(user_command: str, browser_state: dict) -> dict:
+    """Build rich context for every Gemini API call."""
+    return {
+        # What the user said
+        'command': user_command,
 
-    // What the user is looking at / has selected
-    selectedNodes: selectionManager.getSelected(),       // Currently selected nodes
-    visibleNodes: graph.getVisibleNodeSummary(),          // What's on screen
-    recentInteractions: graph.getRecentInteractions(5),   // Last 5 node interactions
+        # What the user is looking at (received from browser via WebSocket)
+        'selected_nodes': browser_state.get('selected_nodes', []),
+        'visible_nodes': browser_state.get('visible_node_summary', []),
+        'recent_interactions': browser_state.get('recent_interactions', []),
 
-    // Conversation history
-    recentMessages: conversationHistory.getLast(20),
+        # Conversation history
+        'recent_messages': conversation_history[-20:],
 
-    // Agent memory from Neo4j
-    recentTasks: await neo4j.run(`
-      MATCH (t:Task)
-      RETURN t ORDER BY t.created_at DESC LIMIT 10
-    `),
+        # Agent memory from Neo4j
+        'recent_tasks': neo4j_run(
+            'MATCH (t:Task) RETURN t ORDER BY t.created_at DESC LIMIT 10'
+        ),
 
-    // Graph schema summary (so the agent knows what data exists)
-    entityTypes: await neo4j.run(`
-      MATCH (n:Entity) RETURN DISTINCT n.type, count(n)
-    `),
+        # Graph schema summary
+        'entity_types': neo4j_run(
+            'MATCH (n:Entity) RETURN DISTINCT n.type, count(n)'
+        ),
 
-    // System time, user preferences, etc.
-    systemContext: {
-      time: new Date().toISOString(),
-      userName: config.userName
+        # System context
+        'system_context': {
+            'time': datetime.now().isoformat(),
+            'user_name': config['user_name']
+        }
     }
-  };
-}
 ```
 
-#### Task Planning
+#### Task Planning (Gemini API)
 
-```javascript
-async function planTask(userCommand) {
-  const context = await buildAgentContext(userCommand);
+```python
+import google.generativeai as genai
 
-  const systemPrompt = `
+model = genai.GenerativeModel('gemini-2.0-flash')
+
+async def plan_task(user_command: str, browser_state: dict) -> dict:
+    context = build_agent_context(user_command, browser_state)
+
+    system_prompt = """
     You are Jarvis Nebula, an AI assistant. The user interacts with you
     through a 3D spatial interface where data exists as glowing nodes.
 
@@ -900,11 +934,12 @@ async function planTask(userCommand) {
     deletions as dangerous.
 
     Respond in JSON format.
-  `;
+    """
 
-  const plan = await llm.chat(systemPrompt, JSON.stringify(context));
-  return JSON.parse(plan);
-}
+    response = model.generate_content(
+        f"{system_prompt}\n\nContext: {json.dumps(context)}\n\nUser: {user_command}"
+    )
+    return json.loads(response.text)
 ```
 
 #### Example Plan
@@ -952,129 +987,186 @@ This plan would appear in the nebula as 4 connected task nodes, linked to existi
 
 ---
 
-### 4.9 Agent Executor (Tool Use)
+### 4.9 Agent Executor (Tool Use — Gemini Function Calling)
 
-**Purpose:** Execute real-world actions on behalf of the AI agent. This is the "hands" of Jarvis — the part that actually does things.
+**Purpose:** Execute real-world actions on behalf of the AI agent. This is the "hands" of Jarvis — the part that actually does things on the local system.
 
-**Open-source handles:**
-- Agent execution frameworks: OpenClaw, NemoClaw, or similar
-- Individual tool implementations vary by framework
+**Architecture:** Uses **Gemini API's native Function Calling** feature. Gemini decides which tool to call, Python executes it locally. No external agent framework needed.
 
-**Custom development:**
-- Tool registry and routing
+**Custom development (Python backend):**
+- Tool registry with Gemini function declarations
+- Agentic loop (Gemini calls tool → Python executes → result fed back → repeat)
 - Safety layer (confirmation for dangerous actions)
 - Result formatting for nebula integration
 
-#### Tool Registry
+#### Tool Registry (Python + Gemini Function Declarations)
 
-```javascript
-const toolRegistry = {
-  // === FILE OPERATIONS ===
-  file_read: {
-    description: 'Read contents of a file',
-    dangerous: false,
-    execute: async ({ path }) => { /* ... */ }
-  },
-  file_write: {
-    description: 'Write content to a file',
-    dangerous: true,  // Always requires confirmation
-    execute: async ({ path, content }) => { /* ... */ }
-  },
-  file_list: {
-    description: 'List files in a directory',
-    dangerous: false,
-    execute: async ({ directory, pattern }) => { /* ... */ }
-  },
+```python
+import os
+import subprocess
+import requests
 
-  // === CODE EXECUTION ===
-  code_run: {
-    description: 'Execute code in a sandboxed environment',
-    dangerous: true,
-    execute: async ({ language, code }) => { /* ... */ }
-  },
+# === TOOL IMPLEMENTATIONS (Python — full local system access!) ===
 
-  // === WEB ===
-  web_search: {
-    description: 'Search the web for information',
-    dangerous: false,
-    execute: async ({ query }) => { /* ... */ }
-  },
-  web_fetch: {
-    description: 'Fetch content from a URL',
-    dangerous: false,
-    execute: async ({ url }) => { /* ... */ }
-  },
+async def file_read(path: str) -> str:
+    """Read contents of a local file."""
+    with open(path, 'r', encoding='utf-8') as f:
+        return f.read()
 
-  // === DATA ===
-  data_analyze: {
-    description: 'Analyze a dataset and return statistics/insights',
-    dangerous: false,
-    execute: async ({ data, analysisType }) => { /* ... */ }
-  },
+async def file_write(path: str, content: str) -> str:
+    """Write content to a local file."""
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    return f"Written {len(content)} bytes to {path}"
 
-  // === COMMUNICATION ===
-  send_message: {
-    description: 'Send a message via configured channel (email, Slack, etc.)',
-    dangerous: true,
-    execute: async ({ channel, recipient, message }) => { /* ... */ }
-  },
+async def file_list(directory: str, pattern: str = '*') -> list:
+    """List files in a directory."""
+    from pathlib import Path
+    return [str(p) for p in Path(directory).glob(pattern)]
 
-  // === KNOWLEDGE GRAPH ===
-  graph_create_node: {
-    description: 'Create a new entity node in the knowledge graph',
-    dangerous: false,  // Graph writes are generally safe
-    execute: async ({ name, type, metadata }) => { /* ... */ }
-  },
-  graph_create_edge: {
-    description: 'Create a relationship between two nodes',
-    dangerous: false,
-    execute: async ({ from, to, type, weight }) => { /* ... */ }
-  }
-};
+async def code_run(language: str, code: str) -> str:
+    """Execute code in a subprocess."""
+    result = subprocess.run(
+        ['python', '-c', code] if language == 'python' else [language, '-e', code],
+        capture_output=True, text=True, timeout=30
+    )
+    return result.stdout + result.stderr
+
+async def web_search(query: str) -> str:
+    """Search the web for information."""
+    # Use a search API or scraping
+    resp = requests.get(f"https://api.duckduckgo.com/?q={query}&format=json")
+    return resp.text
+
+async def web_fetch(url: str) -> str:
+    """Fetch content from a URL."""
+    resp = requests.get(url, timeout=10)
+    return resp.text[:5000]  # Limit response size
+
+async def graph_create_node(name: str, type: str, metadata: dict = None) -> str:
+    """Create a new entity node in Neo4j."""
+    neo4j_run(
+        "CREATE (n:Entity {name: $name, type: $type, metadata: $metadata})",
+        name=name, type=type, metadata=metadata or {}
+    )
+    return f"Created node: {name} ({type})"
+
+async def graph_create_edge(from_name: str, to_name: str, rel_type: str, weight: float = 1.0) -> str:
+    """Create a relationship between two nodes."""
+    neo4j_run("""
+        MATCH (a:Entity {name: $from_name}), (b:Entity {name: $to_name})
+        CREATE (a)-[:RELATES_TO {type: $rel_type, weight: $weight}]->(b)
+    """, from_name=from_name, to_name=to_name, rel_type=rel_type, weight=weight)
+    return f"Created edge: {from_name} -[{rel_type}]-> {to_name}"
+
+# === TOOL REGISTRY (maps names to functions + danger flags) ===
+
+TOOL_REGISTRY = {
+    'file_read':         {'fn': file_read,         'dangerous': False},
+    'file_write':        {'fn': file_write,        'dangerous': True},
+    'file_list':         {'fn': file_list,         'dangerous': False},
+    'code_run':          {'fn': code_run,          'dangerous': True},
+    'web_search':        {'fn': web_search,        'dangerous': False},
+    'web_fetch':         {'fn': web_fetch,         'dangerous': False},
+    'graph_create_node': {'fn': graph_create_node, 'dangerous': False},
+    'graph_create_edge': {'fn': graph_create_edge, 'dangerous': False},
+}
 ```
 
-#### Integration with OpenClaw / NemoClaw
+#### Gemini Function Calling — Agentic Loop
 
-The Agent Executor acts as an **adapter layer** between our AI Agent Core and the execution framework:
+```python
+import google.generativeai as genai
 
-```javascript
-class AgentExecutor {
-  constructor(framework = 'openclaw') {
-    // Initialize the chosen framework
-    if (framework === 'openclaw') {
-      this.runtime = new OpenClawRuntime({ tools: toolRegistry });
-    } else if (framework === 'nemoclaw') {
-      this.runtime = new NemoClawRuntime({ tools: toolRegistry });
-    }
-  }
+# Define tools as Gemini function declarations
+GEMINI_TOOLS = [
+    genai.protos.Tool(function_declarations=[
+        genai.protos.FunctionDeclaration(
+            name="file_read",
+            description="Read contents of a local file",
+            parameters={"type": "OBJECT", "properties": {
+                "path": {"type": "STRING", "description": "File path to read"}
+            }, "required": ["path"]}
+        ),
+        genai.protos.FunctionDeclaration(
+            name="file_write",
+            description="Write content to a local file",
+            parameters={"type": "OBJECT", "properties": {
+                "path": {"type": "STRING"},
+                "content": {"type": "STRING"}
+            }, "required": ["path", "content"]}
+        ),
+        # ... (all other tools defined similarly)
+    ])
+]
 
-  async execute(step) {
-    // Safety check: dangerous actions need confirmation
-    if (step.dangerous && !step.confirmed) {
-      throw new Error('Dangerous action requires user confirmation');
-    }
+model = genai.GenerativeModel('gemini-2.0-flash', tools=GEMINI_TOOLS)
 
-    // Execute via framework
-    const result = await this.runtime.executeTool(step.tool, step.args);
+async def run_agent_loop(user_command: str, context: dict) -> dict:
+    """The core agentic loop: Gemini decides tools → Python executes → repeat."""
+    chat = model.start_chat()
+    prompt = f"Context: {json.dumps(context)}\n\nUser command: {user_command}"
+    response = chat.send_message(prompt)
 
-    // Convert results to entities for Neo4j ingestion
-    const newEntities = this.extractEntities(result);
+    results = []
 
+    # Loop until Gemini returns final text (no more tool calls)
+    while response.candidates[0].content.parts:
+        part = response.candidates[0].content.parts[0]
+
+        # If Gemini wants to call a function
+        if hasattr(part, 'function_call') and part.function_call:
+            call = part.function_call
+            tool_name = call.name
+            tool_args = dict(call.args)
+
+            tool_info = TOOL_REGISTRY.get(tool_name)
+            if not tool_info:
+                raise ValueError(f"Unknown tool: {tool_name}")
+
+            # Safety check: dangerous actions need user confirmation
+            if tool_info['dangerous']:
+                await ws.send_json({
+                    'type': 'confirm_request',
+                    'tool': tool_name,
+                    'args': tool_args
+                })
+                confirmed = await wait_for_user_confirmation()
+                if not confirmed:
+                    # Tell Gemini the action was rejected
+                    response = chat.send_message(
+                        genai.protos.Content(parts=[
+                            genai.protos.Part(function_response=genai.protos.FunctionResponse(
+                                name=tool_name,
+                                response={"result": "USER REJECTED this action"}
+                            ))
+                        ])
+                    )
+                    continue
+
+            # Execute the tool!
+            result = await tool_info['fn'](**tool_args)
+            results.append({'tool': tool_name, 'result': result})
+
+            # Send result back to Gemini for next step
+            response = chat.send_message(
+                genai.protos.Content(parts=[
+                    genai.protos.Part(function_response=genai.protos.FunctionResponse(
+                        name=tool_name,
+                        response={"result": str(result)}
+                    ))
+                ])
+            )
+        else:
+            # Gemini returned final text — agent loop is done
+            break
+
+    final_text = response.text
     return {
-      success: true,
-      output: result,
-      newEntities: newEntities
-    };
-  }
-
-  extractEntities(result) {
-    // Parse tool output for things worth remembering
-    // e.g., a web search returns articles → each becomes a :Entity node
-    // e.g., a file write creates a file → the file becomes a :Entity node
-    // This is handled by LLM: "What entities are in this result?"
-    return agentCore.extractEntitiesFromResult(result);
-  }
-}
+        'success': True,
+        'summary': final_text,
+        'tool_results': results
+    }
 ```
 
 #### Safety Architecture
@@ -1139,31 +1231,39 @@ G8 (left pinch PTT) > G4 (right pinch)  — left hand is reserved for voice trig
 
 ## 6. Data Flow
 
-### Frame-by-Frame Processing (target: 16ms per frame)
+### Frame-by-Frame Processing (Split Architecture)
 
 ```
-Time 0ms   — Webcam captures frame
-Time 3ms   — MediaPipe Hands processes → 21 landmarks (per hand)
-Time 6ms   — MediaPipe Pose processes → 33 landmarks
+=== PYTHON BACKEND (runs independently at ~30 FPS) ===
+
+Time 0ms   — OpenCV captures webcam frame
+Time 3ms   — MediaPipe HandLandmarker processes → 21 landmarks (per hand)
+Time 6ms   — MediaPipe PoseLandmarker processes → 33 landmarks
 Time 8ms   — Gesture Classifier runs:
               - Finger extension detection
               - Gesture state machine update
               - Smoothing (EMA)
-Time 8ms   — Mouse/Keyboard state polled (parallel, no delay)
 Time 9ms   — Distance Calculator runs:
               - Chest anchor estimation
               - Hand-to-chest distance
               - Sensitivity scale output
-Time 10ms  — Input Merger resolves:
-              - Spatial: gesture or mouse (last active wins)
-              - Commands: voice/text (always processed)
-Time 11ms  — Application Layer processes action:
+Time 10ms  — WebSocket SEND to browser:
+              {landmarks, gesture, sensitivity, voice_text}
+
+=== BROWSER FRONTEND (runs at 60 FPS via requestAnimationFrame) ===
+
+Time 0ms   — Receive latest WebSocket data (landmarks, gesture)
+Time 0ms   — Mouse/Keyboard state polled (local, no delay)
+Time 1ms   — Input Merger resolves:
+              - Spatial: gesture (from WS) or mouse (local) — last active wins
+              - Commands: voice/text → send to Python via WebSocket
+Time 2ms   — Application Layer processes action:
               - Camera update (rotate/zoom from winner)
               - Selection update (raycast or click)
               - Agent status update (if task running)
-Time 12ms  — 3d-force-graph physics step
-Time 14ms  — Three.js renders frame
-Time 15ms  — Hand overlay draws on Canvas 2D
+Time 3ms   — 3d-force-graph physics step
+Time 12ms  — Three.js renders frame
+Time 14ms  — Hand overlay draws on Canvas 2D (using WS landmarks)
 Time 16ms  — Frame displayed
 ```
 
@@ -1479,4 +1579,292 @@ These are explicitly **NOT** in the MVP (Phases 1-9). Documented here for future
 
 ---
 
-*Last updated: 2026-03-31*
+## 11. Implementation Readiness Specification
+
+This section is the authoritative implementation baseline. If any earlier section offers multiple options or contains outdated wording, this section wins.
+
+### 11.1 Locked Product And Technical Decisions
+
+- **Language policy:** All user-facing UI, prompts, labels, help text, speech output, sample data, and documentation are English-only.
+- **Frontend framework:** MVP uses **Vite + Vanilla JavaScript (ES modules)**. Do not use React for the initial build.
+- **Backend framework:** MVP uses **Python + FastAPI** for REST, WebSocket, orchestration, hardware access, and AI integration.
+- **LLM boundary:** Gemini is called **only from the Python backend**. The browser must never call Gemini directly.
+- **Secret handling:** The Gemini key must live in a **server-side** environment variable named `GEMINI_API_KEY`. `VITE_GEMINI_API_KEY` is explicitly disallowed because it would expose the key to the client bundle.
+- **Speech stack:** Use **faster-whisper** for STT, **edge-tts** as the primary TTS engine, and `pyttsx3` only as a fallback.
+- **Graph database:** Use **Neo4j Community** via Docker Compose for local development.
+- **Primary development platform:** Windows desktop development is first-class. Browser target is current Chrome on desktop.
+- **Scope rule:** Build the MVP in phase order. No future-enhancement work is allowed before Phase 9 is complete.
+
+### 11.2 Authoritative MVP Scope
+
+The MVP includes:
+
+- 3D nebula rendering with mouse and keyboard support
+- FastAPI backend with WebSocket connection to the browser
+- Neo4j-backed graph querying and visual refresh
+- Gesture tracking with graceful fallback when webcam access is unavailable
+- Voice command input in English
+- Agent planning and controlled tool execution with explicit confirmation for dangerous actions
+- Task history written back into the graph
+
+The MVP excludes:
+
+- Multi-user collaboration
+- VR or AR mode
+- Mobile companion apps
+- Plugin marketplace or third-party plugin loading
+- Eye tracking
+- Semantic embedding-based layout
+- Autonomous background actions without user initiation
+
+### 11.3 Repository Layout
+
+The repository should be created with this structure:
+
+```text
+/
+  frontend/
+    index.html
+    src/
+      main.js
+      app/
+      render/
+      graph/
+      input/
+      overlay/
+      ui/
+      state/
+      services/
+      utils/
+    public/
+  backend/
+    app/
+      main.py
+      api/
+      ws/
+      core/
+      graph/
+      tracking/
+      gestures/
+      voice/
+      agent/
+      tools/
+      models/
+      services/
+    tests/
+  infra/
+    docker-compose.yml
+    neo4j/
+      seed/
+  docs/
+  scripts/
+```
+
+Ownership boundaries:
+
+- `frontend/` owns rendering, browser input, overlay drawing, local UI state, and WebSocket client logic.
+- `backend/` owns AI orchestration, hardware capture, gesture classification, voice processing, graph access, and tool execution.
+- `infra/` owns local services such as Neo4j and seed data bootstrap.
+- `docs/` owns specifications, architecture notes, and operational runbooks.
+
+### 11.4 Runtime Requirements
+
+Use these versions unless a compatibility issue forces a change:
+
+- Node.js 20 LTS
+- npm 10+
+- Python 3.11
+- Docker Desktop with Compose v2
+- Neo4j 5.x Community
+- Google Gemini API via the official Python SDK
+
+### 11.5 Environment Variables
+
+The implementation should standardize on the following variables:
+
+| Variable | Scope | Required | Notes |
+|----------|-------|----------|-------|
+| `GEMINI_API_KEY` | backend | Yes | Server-only secret. Never expose to the browser. |
+| `NEO4J_URI` | backend | Yes | Example: `bolt://localhost:7687` |
+| `NEO4J_USERNAME` | backend | Yes | Usually `neo4j` for local development |
+| `NEO4J_PASSWORD` | backend | Yes | Local development password |
+| `APP_NAME` | backend | No | Human-readable app name for logs and status |
+| `VITE_WS_URL` | frontend | No | Optional explicit WebSocket endpoint for non-default setups |
+| `EDGE_TTS_VOICE` | backend | No | Default English voice for TTS |
+| `LOG_LEVEL` | backend | No | Default `INFO` |
+
+Implementation rules:
+
+- All secrets stay in backend-only env vars.
+- Frontend env vars must use the `VITE_` prefix only when they are safe to expose publicly.
+- `.env.example` must be aligned to this table before coding begins.
+
+### 11.6 Public API Surface
+
+The backend must expose:
+
+- `GET /api/health`
+  - Returns service health, Neo4j availability, and model readiness.
+- `GET /api/config/public`
+  - Returns non-secret runtime configuration needed by the frontend.
+- `POST /api/graph/query`
+  - Accepts validated graph query requests from text or voice pipelines.
+- `POST /api/agent/command`
+  - Accepts agent task requests initiated from the frontend.
+- `WS /ws`
+  - Bi-directional real-time channel for input frames, browser state, graph updates, agent status, and confirmations.
+
+These endpoints are implementation targets even if some of them are initially stubbed in early phases.
+
+### 11.7 WebSocket Contract
+
+Every WebSocket message must use this envelope:
+
+```json
+{
+  "type": "message_type",
+  "ts": "2026-04-08T12:00:00Z",
+  "payload": {}
+}
+```
+
+Client-to-server messages:
+
+- `client_ready`
+- `browser_state`
+- `text_command`
+- `voice_control`
+- `ui_action`
+- `agent_confirmation`
+- `task_cancel`
+
+Server-to-client messages:
+
+- `graph_snapshot`
+- `graph_patch`
+- `input_frame`
+- `gesture_event`
+- `agent_plan`
+- `agent_step`
+- `agent_confirmation_request`
+- `agent_result`
+- `system_status`
+- `error`
+
+Minimum payload expectations:
+
+- `browser_state` includes selected node IDs, visible node IDs, camera pose, and the current input focus state.
+- `input_frame` includes hand landmarks, pose landmarks when available, gesture state, confidence, and sensitivity.
+- `agent_plan` includes a stable task ID, ordered steps, and a danger flag per step.
+- `agent_confirmation_request` includes the task ID, step ID, human-readable summary, timeout, and allowed confirmation methods.
+- `graph_snapshot` includes the full node-link graph for initial load.
+- `graph_patch` includes node and edge additions, updates, and removals without forcing a full refresh.
+
+### 11.8 Graph Data Model
+
+The authoritative graph labels are:
+
+- `:Entity`
+- `:Task`
+- `:Session`
+
+The authoritative relationship types are:
+
+- `:RELATES_TO`
+- `:OPERATED_ON`
+- `:PRODUCED`
+- `:MENTIONED_IN`
+- `:PART_OF`
+
+Required node properties:
+
+- `Entity`
+  - `id`, `name`, `type`, `metadata`, `created_at`, `updated_at`
+- `Task`
+  - `id`, `command`, `status`, `plan_json`, `result_summary`, `dangerous`, `created_at`, `updated_at`
+- `Session`
+  - `id`, `started_at`, `ended_at`, `metadata`
+
+Required constraints:
+
+```cypher
+CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (n:Entity) REQUIRE n.id IS UNIQUE;
+CREATE CONSTRAINT task_id IF NOT EXISTS FOR (n:Task) REQUIRE n.id IS UNIQUE;
+CREATE CONSTRAINT session_id IF NOT EXISTS FOR (n:Session) REQUIRE n.id IS UNIQUE;
+```
+
+Rules:
+
+- Browser rendering IDs must map directly to graph IDs.
+- Graph queries from natural language are read-only unless the request is routed through the agent execution path.
+- Agent-created graph writes must be explicit and traceable to a `Task`.
+
+### 11.9 Safety And Execution Rules
+
+Non-negotiable safety rules:
+
+- Dangerous actions always require explicit confirmation.
+- Dangerous actions include file write, file delete, shell execution, code execution, external communication, and any irreversible graph mutation.
+- Confirmation timeout defaults to 30 seconds and rejects by default.
+- The backend tool layer must operate on an allowlisted workspace root when touching local files.
+- Secrets, raw API keys, and credential-bearing URLs must never be sent to the browser, voice output, or logs.
+- A failed tool step cannot silently continue as success. Every failure updates task state and is surfaced to the UI.
+
+### 11.10 Testing Strategy
+
+Testing is mandatory from the first implementation phase onward.
+
+- Frontend unit tests: **Vitest**
+- Backend unit and integration tests: **pytest**
+- End-to-end browser tests: **Playwright**
+- Manual hardware validation: webcam, microphone, gesture fallback, and voice pipeline checks
+
+Required test gates:
+
+- Phase 1-2: smoke tests for app boot, WebSocket connection, and graph rendering
+- Phase 3-5: deterministic gesture-classifier tests using recorded landmark fixtures
+- Phase 6: transcript and command-router tests for English voice commands
+- Phase 8-9: agent safety tests covering confirm, reject, cancel, timeout, and tool failure propagation
+
+### 11.11 Phase Gates And Exit Criteria
+
+No phase is complete until its exit criteria are met.
+
+- **Phase 1 exit:** browser app boots locally, renders a stable 3D demo graph, supports mouse orbit/select/zoom, shows an always-visible English text input, and maintains interactive performance at 500 demo nodes.
+- **Phase 2 exit:** Neo4j runs locally through Docker Compose, graph data loads from the database, text queries update the view, and write operations are blocked from the graph query path.
+- **Phase 3 exit:** gestures can rotate, point, drag, confirm, and zoom; webcam denial leaves mouse and keyboard fully functional.
+- **Phase 4 exit:** distance-based sensitivity works and cleanly disables itself when pose tracking drops below the frame budget.
+- **Phase 5 exit:** the hand overlay is visually stable, non-blocking, and accurately mirrors gesture state.
+- **Phase 6 exit:** English voice commands work for UI actions and graph queries, and do not block other interaction channels.
+- **Phase 7 exit:** concurrent input combinations behave predictably under manual testing and no longer show priority conflicts.
+- **Phase 8 exit:** the agent can plan, request confirmation, execute safe and dangerous tools correctly, and write task outcomes back to Neo4j.
+- **Phase 9 exit:** memory, queueing, retry behavior, onboarding, and end-to-end tests are in place for a stable MVP.
+
+### 11.12 Execution Order Before Feature Work
+
+Before Phase 1 implementation starts, complete this setup sequence:
+
+1. Align `PROJECT_PLAN.md` and `.env.example` to the locked decisions in this section.
+2. Create the repository layout exactly as specified.
+3. Add backend and frontend dependency manifests.
+4. Add Docker Compose for Neo4j.
+5. Add formatter, linter, and test runner configuration.
+6. Add a minimal `README.md` with local startup instructions.
+7. Only then begin Phase 1 feature work.
+
+### 11.13 Definition Of Done For Planning
+
+Planning is considered complete when all of the following are true:
+
+- There is exactly one authoritative answer for each major architecture choice.
+- Secrets and trust boundaries are clearly defined.
+- The repo layout is fixed.
+- Data contracts are written down.
+- Each phase has measurable exit criteria.
+- The MVP scope is frozen against feature creep.
+
+At that point, implementation can begin without re-deciding core architecture.
+
+---
+
+*Last updated: 2026-04-08*
