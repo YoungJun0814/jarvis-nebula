@@ -41,8 +41,8 @@ export function generateDemoGraph(nodeCount = 500, seed = 20260408) {
 
       const sameTypeBoost = source.type === target.type ? 0.012 : 0;
       const sameClusterBoost = source.cluster === target.cluster ? 0.008 : 0;
-      const priorityBoost = (source.priority + target.priority) / 400;
-      const probability = 0.0012 + sameTypeBoost + sameClusterBoost + priorityBoost;
+      const priorityBoost = (source.priority + target.priority) / 300;
+      const probability = 0.002 + sameTypeBoost + sameClusterBoost + priorityBoost;
 
       if (random() >= probability) {
         continue;

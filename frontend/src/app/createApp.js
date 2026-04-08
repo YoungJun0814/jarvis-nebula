@@ -79,6 +79,8 @@ export function createApp(rootElement, options = {}) {
     selectedNode: null,
     selectedNeighborIds: EMPTY_SET,
     selectedLinkIds: EMPTY_SET,
+    secondDegreeNeighborIds: EMPTY_SET,
+    secondDegreeLinkIds: EMPTY_SET,
     paused: false,
     pointer: { x: 0, y: 0 },
     lastAction: 'Nebula ready. Explore with the mouse or submit a command below.',
@@ -93,6 +95,8 @@ export function createApp(rootElement, options = {}) {
       hoveredNodeId: state.hoveredNode?.id ?? null,
       connectedNodeIds: state.selectedNeighborIds,
       connectedLinkIds: state.selectedLinkIds,
+      secondDegreeNodeIds: state.secondDegreeNeighborIds,
+      secondDegreeLinkIds: state.secondDegreeLinkIds,
     }),
     onNodeHover(node) {
       const nextNodeId = node?.id ?? null;
@@ -211,12 +215,29 @@ export function createApp(rootElement, options = {}) {
     if (!state.selectedNode) {
       state.selectedNeighborIds = EMPTY_SET;
       state.selectedLinkIds = EMPTY_SET;
+      state.secondDegreeNeighborIds = EMPTY_SET;
+      state.secondDegreeLinkIds = EMPTY_SET;
       return;
     }
 
-    state.selectedNeighborIds =
-      selectionIndex.neighborIdsByNode.get(state.selectedNode.id) ?? EMPTY_SET;
-    state.selectedLinkIds = selectionIndex.linkIdsByNode.get(state.selectedNode.id) ?? EMPTY_SET;
+    const firstDegreeNodes = selectionIndex.neighborIdsByNode.get(state.selectedNode.id) ?? EMPTY_SET;
+    const firstDegreeLinks = selectionIndex.linkIdsByNode.get(state.selectedNode.id) ?? EMPTY_SET;
+    
+    const secondDegreeNodes = new Set(firstDegreeNodes);
+    const secondDegreeLinks = new Set(firstDegreeLinks);
+    
+    firstDegreeNodes.forEach((neighborId) => {
+      const neighborsOfNeighbor = selectionIndex.neighborIdsByNode.get(neighborId) ?? EMPTY_SET;
+      neighborsOfNeighbor.forEach((id) => secondDegreeNodes.add(id));
+      
+      const linksOfNeighbor = selectionIndex.linkIdsByNode.get(neighborId) ?? EMPTY_SET;
+      linksOfNeighbor.forEach((id) => secondDegreeLinks.add(id));
+    });
+
+    state.selectedNeighborIds = firstDegreeNodes;
+    state.selectedLinkIds = firstDegreeLinks;
+    state.secondDegreeNeighborIds = secondDegreeNodes;
+    state.secondDegreeLinkIds = secondDegreeLinks;
   }
 }
 

@@ -3,35 +3,35 @@ import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 const CATEGORY_COLORS = {
-  person: '#52c7ff',
-  project: '#9df07c',
-  concept: '#ffb661',
-  document: '#ff7f95',
+  person: '#00ccff',
+  project: '#ff00aa',
+  concept: '#9b5de5',
+  document: '#ff00ff',
   default: '#d5d9ff',
 };
 
 const LINK_VISUALS = {
-  semantic: { rgb: [98, 183, 255] },
-  stabilizer: { rgb: [237, 227, 120] },
-  default: { rgb: [163, 170, 255] },
+  semantic: { rgb: [255, 0, 170] },
+  stabilizer: { rgb: [0, 204, 255] },
+  default: { rgb: [155, 93, 229] },
 };
 
 const DEFAULT_SCENE_VISUALS = {
-  bloomStrength: 0.78,
-  bloomRadius: 0.48,
-  bloomThreshold: 0.42,
-  bloomOrbOpacity: 0.032,
-  boundaryOpacity: 0.042,
-  toneMappingExposure: 0.84,
+  bloomStrength: 1.2,
+  bloomRadius: 0.6,
+  bloomThreshold: 0.2,
+  bloomOrbOpacity: 0.012,
+  boundaryOpacity: 0.01,
+  toneMappingExposure: 1.0,
 };
 
 const FOCUS_SCENE_VISUALS = {
-  bloomStrength: 0.14,
-  bloomRadius: 0.22,
-  bloomThreshold: 0.68,
+  bloomStrength: 1.2,
+  bloomRadius: 0.4,
+  bloomThreshold: 0.3,
   bloomOrbOpacity: 0.007,
   boundaryOpacity: 0.012,
-  toneMappingExposure: 0.64,
+  toneMappingExposure: 1.0,
 };
 
 const geometryCache = new Map();
@@ -53,30 +53,43 @@ export function createNebulaScene({
     .enableNodeDrag(false)
     .nodeThreeObject((node) => createNodeMesh(node, getSelectionState))
     .linkColor((link) => getLinkColor(link))
-    .linkOpacity((link) => getLinkOpacity(link, getSelectionState))
-    .linkWidth((link) => 0.2 + link.weight * 1.1)
+    .linkOpacity((link) => getLinkVisuals(link.id, getSelectionState()).opacity)
+    .linkVisibility((link) => getLinkVisuals(link.id, getSelectionState()).opacity > 0)
+    .linkWidth((link) => {
+      const state = getSelectionState();
+      const isSelected = state.selectedNodeId && state.connectedLinkIds?.has(link.id);
+      const isSecondDegree = !isSelected && state.selectedNodeId && state.secondDegreeLinkIds?.has(link.id);
+      
+      if (isSelected) return 0.55 + link.weight * 0.5;
+      if (isSecondDegree) return 0.12 + link.weight * 0.16;
+      return 0.1 + link.weight * 0.15;
+    })
+    .linkResolution(4)
     .linkDirectionalParticles(0)
-    .d3AlphaDecay(0.026)
-    .d3VelocityDecay(0.28)
+    .d3AlphaDecay(0.05)
+    .d3VelocityDecay(0.4)
     .onNodeHover((node) => onNodeHover(node))
     .onNodeClick((node) => onNodeClick(node))
     .onBackgroundClick(() => onBackgroundClick());
 
   graph.cameraPosition(INITIAL_CAMERA, ORIGIN, 0);
 
+  graph.d3Force('charge').strength(-130);
+  graph.d3Force('link').distance(45);
+
   const controls = graph.controls();
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.enablePan = false;
-  controls.minDistance = 130;
-  controls.maxDistance = 620;
+  controls.minDistance = 40;
+  controls.maxDistance = 1600;
   controls.rotateSpeed = 0.65;
   controls.zoomSpeed = 0.85;
   controls.target.set(ORIGIN.x, ORIGIN.y, ORIGIN.z);
   controls.update();
 
   const renderer = graph.renderer();
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(1);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = DEFAULT_SCENE_VISUALS.toneMappingExposure;
   graph.__nebulaRenderer = renderer;
@@ -140,22 +153,23 @@ export function createNebulaScene({
         graph.resumeAnimation();
       }
 
-      const distance = Math.max(230, 190 + Math.log(node.connections + 2) * 34);
-      const direction = new THREE.Vector3(node.x, node.y, node.z);
-      if (direction.lengthSq() === 0) {
-        direction.set(0, 0, 1);
-      }
+      const distance = 160;
+      const currentCameraDist = Math.hypot(node.x, node.y, node.z);
+      const distRatio = 1 + distance / (currentCameraDist || 1);
 
-      direction.normalize();
-      controls.target.set(ORIGIN.x, ORIGIN.y, ORIGIN.z);
+      const targetPos = { x: node.x, y: node.y, z: node.z };
+      const cameraPos = {
+        x: node.x * distRatio,
+        y: node.y * distRatio,
+        z: node.z * distRatio,
+      };
+
+      controls.target.set(targetPos.x, targetPos.y, targetPos.z);
       controls.update();
+
       graph.cameraPosition(
-        {
-          x: direction.x * distance,
-          y: direction.y * distance,
-          z: direction.z * distance,
-        },
-        ORIGIN,
+        cameraPos,
+        targetPos,
         900,
       );
 
@@ -243,7 +257,7 @@ function createNodeMesh(node, selectionState) {
 function getSphereGeometry(radius) {
   const key = radius.toFixed(1);
   if (!geometryCache.has(key)) {
-    geometryCache.set(key, new THREE.IcosahedronGeometry(radius, 2));
+    geometryCache.set(key, new THREE.IcosahedronGeometry(radius, 1));
   }
 
   return geometryCache.get(key);
@@ -254,50 +268,43 @@ function getLinkColor(link) {
   return `rgb(${palette.rgb.join(', ')})`;
 }
 
-function getLinkOpacity(link, selectionState) {
-  const state = selectionState();
+function getNodeVisuals(nodeId, state, isHovered) {
+  const isSelected = nodeId === state.selectedNodeId;
+  const isConnected = state.connectedNodeIds?.has(nodeId);
+  const isSecondDegree = !isSelected && !isConnected && state.secondDegreeNodeIds?.has(nodeId);
+  const hasSelection = !!state.selectedNodeId;
 
-  if (!state.selectedNodeId) {
-    return 0.5;
+  if (isSelected) {
+    return { bright: 1.04, bloom: 1.0, opacity: 1.0, halo: 0.016, scale: 1.95 };
   }
-
-  if (state.connectedLinkIds?.has(link.id)) {
-    return 0.5;
+  if (hasSelection && isConnected) {
+    return { bright: 0.9, bloom: 0.6, opacity: 0.96, halo: 0.011, scale: 1.62 };
   }
-
-  return 0.1;
+  if (hasSelection && isSecondDegree) {
+    return { bright: 0.8, bloom: 0.0, opacity: 0.75, halo: 0.0, scale: 1.62 };
+  }
+  if (hasSelection) {
+    return { bright: 0.45, bloom: 0.1, opacity: 0.2, halo: 0.0024, scale: 1.62 };
+  }
+  return { 
+    bright: 1.0, 
+    bloom: isHovered ? 0.8 : 0.4, 
+    opacity: isHovered ? 1.0 : 0.96, 
+    halo: isHovered ? 0.02 : 0.012, 
+    scale: isHovered ? 1.78 : 1.62 
+  };
 }
 
-function getNodeBrightnessFactor(nodeId, selectionState) {
-  if (!selectionState.selectedNodeId) {
-    return 1;
-  }
+function getLinkVisuals(linkId, state) {
+  const isSelected = state.selectedNodeId && state.connectedLinkIds?.has(linkId);
+  const isSecondDegree = !isSelected && state.selectedNodeId && state.secondDegreeLinkIds?.has(linkId);
+  const isHovered = !state.selectedNodeId && state.hoveredNodeId && state.connectedLinkIds?.has(linkId);
 
-  if (nodeId === selectionState.selectedNodeId) {
-    return 1.04;
-  }
-
-  if (selectionState.connectedNodeIds?.has(nodeId)) {
-    return 0.9;
-  }
-
-  return 0.45;
-}
-
-function getNodeOpacity(nodeId, selectionState) {
-  if (!selectionState.selectedNodeId) {
-    return nodeId === selectionState.hoveredNodeId ? 1 : 0.96;
-  }
-
-  if (nodeId === selectionState.selectedNodeId) {
-    return 1;
-  }
-
-  if (selectionState.connectedNodeIds?.has(nodeId)) {
-    return 0.96;
-  }
-
-  return 0.2;
+  if (isSelected || isHovered) return { opacity: 1.0, glow: 3.5, boost: 2.5 };
+  if (isSecondDegree) return { opacity: 0.5, glow: 0.0, boost: 1.0 };
+  
+  // Completely hide links that are not connected to the selected/hovered node
+  return { opacity: 0.0, glow: 0.0, boost: 1.0 };
 }
 
 function decorateScene(scene) {
@@ -311,35 +318,11 @@ function decorateScene(scene) {
   rimLight.position.set(-80, 32, -100);
   scene.add(rimLight);
 
-  const bloomOrb = new THREE.Mesh(
-    new THREE.SphereGeometry(132, 42, 42),
-    new THREE.MeshBasicMaterial({
-      color: '#2a4478',
-      transparent: true,
-      opacity: DEFAULT_SCENE_VISUALS.bloomOrbOpacity,
-      side: THREE.BackSide,
-    }),
-  );
-  bloomOrb.userData.role = 'bloom-orb';
-  scene.add(bloomOrb);
-
-  const boundarySphere = new THREE.Mesh(
-    new THREE.SphereGeometry(128, 32, 32),
-    new THREE.MeshBasicMaterial({
-      color: '#6cc7ff',
-      transparent: true,
-      opacity: DEFAULT_SCENE_VISUALS.boundaryOpacity,
-      wireframe: true,
-    }),
-  );
-  boundarySphere.userData.role = 'boundary-sphere';
-  scene.add(boundarySphere);
-
   scene.add(createStarField());
 }
 
 function createStarField() {
-  const starCount = 900;
+  const starCount = 300;
   const positions = new Float32Array(starCount * 3);
 
   for (let index = 0; index < starCount; index += 1) {
@@ -374,8 +357,11 @@ function configureBloom(graph, container) {
   }
 
   const composer = graph.postProcessingComposer();
+  const renderWidth = Math.max(1, Math.floor((container.clientWidth || window.innerWidth) / 2));
+  const renderHeight = Math.max(1, Math.floor((container.clientHeight || window.innerHeight) / 2));
+
   const bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(container.clientWidth || 1, container.clientHeight || 1),
+    new THREE.Vector2(renderWidth, renderHeight),
     DEFAULT_SCENE_VISUALS.bloomStrength,
     DEFAULT_SCENE_VISUALS.bloomRadius,
     DEFAULT_SCENE_VISUALS.bloomThreshold,
@@ -391,7 +377,9 @@ function updateBloom(graph, container) {
     return;
   }
 
-  bloomPass.setSize(container.clientWidth || 1, container.clientHeight || 1);
+  const renderWidth = Math.max(1, Math.floor((container.clientWidth || window.innerWidth) / 2));
+  const renderHeight = Math.max(1, Math.floor((container.clientHeight || window.innerHeight) / 2));
+  bloomPass.setSize(renderWidth, renderHeight);
 }
 
 function resizeGraph(graph, container) {
@@ -403,54 +391,49 @@ function resizeGraph(graph, container) {
 }
 
 function applyNodeVisualState(object, node, selectionState) {
-  if (!object?.userData?.coreMaterial || !object.userData.baseColor) {
-    return;
-  }
+  if (!object?.userData?.coreMaterial || !object.userData.baseColor) return;
 
-  const isSelected = node.id === selectionState.selectedNodeId;
   const isHovered = node.id === selectionState.hoveredNodeId;
-  const brightnessFactor = getNodeBrightnessFactor(node.id, selectionState);
-  const haloScale = isSelected ? 1.95 : isHovered ? 1.78 : 1.62;
-  const coreMaterial = object.userData.coreMaterial;
-  const haloMaterial = object.userData.haloMaterial;
-  const ring = object.userData.ring;
-  const halo = object.userData.halo;
-  const baseColor = object.userData.baseColor;
+  const visuals = getNodeVisuals(node.id, selectionState, isHovered);
+  const { coreMaterial, haloMaterial, ring, halo, baseColor } = object.userData;
 
-  coreMaterial.color.copy(baseColor).multiplyScalar(brightnessFactor);
-  coreMaterial.emissive.copy(baseColor).multiplyScalar(brightnessFactor * 0.6);
-  coreMaterial.emissiveIntensity = getNodeEmissiveIntensity(node.id, selectionState, isHovered);
-  coreMaterial.opacity = getNodeOpacity(node.id, selectionState);
+  coreMaterial.color.copy(new THREE.Color('#ffffff'));
+  coreMaterial.emissive.copy(baseColor).multiplyScalar(visuals.bright * 0.8);
+  coreMaterial.emissiveIntensity = visuals.bloom;
+  coreMaterial.opacity = visuals.opacity;
   coreMaterial.needsUpdate = true;
 
-  halo.scale.setScalar(haloScale);
-  haloMaterial.color.copy(baseColor).multiplyScalar(Math.max(brightnessFactor, isSelected ? 0.8 : 0.56));
-  haloMaterial.opacity = getNodeHaloOpacity(node.id, selectionState, isHovered);
+  halo.scale.setScalar(visuals.scale);
+  haloMaterial.color.copy(baseColor).multiplyScalar(Math.max(visuals.bright, visuals.scale > 1.8 ? 0.8 : 0.56));
+  haloMaterial.opacity = visuals.halo;
   haloMaterial.needsUpdate = true;
 
-  ring.visible = isSelected;
+  ring.visible = visuals.scale > 1.8;
 }
 
 function applyLinkVisualState(object, link, selectionState) {
-  if (!object) {
-    return;
-  }
+  if (!object) return;
 
-  const palette = LINK_VISUALS[link.kind] ?? LINK_VISUALS.default;
-  const opacity = getLinkOpacity(link, () => selectionState);
-  const color = new THREE.Color(
-    palette.rgb[0] / 255,
-    palette.rgb[1] / 255,
-    palette.rgb[2] / 255,
-  );
+  const visuals = getLinkVisuals(link.id, selectionState);
+  const rgb = LINK_VISUALS[link.kind]?.rgb ?? LINK_VISUALS.default.rgb;
+  const baseColor = new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
+
+  object.visible = visuals.opacity > 0; // Remove from render tree if invisible (Massive GPU optimization)
+
+  if (!object.visible) {
+    return; // Fast path: skip material updates if it's not even visible
+  }
 
   updateObjectMaterials(object, (material) => {
     if (material.color) {
-      material.color.copy(color);
+      material.color.copy(baseColor).multiplyScalar(visuals.boost);
     }
-
+    if (material.emissive !== undefined) {
+      material.emissive.copy(baseColor);
+      material.emissiveIntensity = visuals.glow;
+    }
     material.transparent = true;
-    material.opacity = opacity;
+    material.opacity = visuals.opacity;
     material.depthWrite = false;
     material.needsUpdate = true;
   });
@@ -467,37 +450,7 @@ function updateObjectMaterials(object, applyMaterial) {
   }
 }
 
-function getNodeHaloOpacity(nodeId, selectionState, isHovered) {
-  if (!selectionState.selectedNodeId) {
-    return isHovered ? 0.02 : 0.012;
-  }
-
-  if (nodeId === selectionState.selectedNodeId) {
-    return 0.016;
-  }
-
-  if (selectionState.connectedNodeIds?.has(nodeId)) {
-    return 0.011;
-  }
-
-  return 0.0024;
-}
-
-function getNodeEmissiveIntensity(nodeId, selectionState, isHovered) {
-  if (!selectionState.selectedNodeId) {
-    return isHovered ? 0.034 : 0.026;
-  }
-
-  if (nodeId === selectionState.selectedNodeId) {
-    return 0.024;
-  }
-
-  if (selectionState.connectedNodeIds?.has(nodeId)) {
-    return 0.018;
-  }
-
-  return 0.008;
-}
+// Helper functions refactored to getNodeVisuals and getLinkVisuals
 
 function applySceneVisualState(graph, selectionState) {
   const sceneVisuals = selectionState.selectedNodeId ? FOCUS_SCENE_VISUALS : DEFAULT_SCENE_VISUALS;
@@ -513,16 +466,4 @@ function applySceneVisualState(graph, selectionState) {
   if (renderer) {
     renderer.toneMappingExposure = sceneVisuals.toneMappingExposure;
   }
-
-  graph.scene().traverse((object) => {
-    if (object.userData?.role === 'bloom-orb' && object.material) {
-      object.material.opacity = sceneVisuals.bloomOrbOpacity;
-      object.material.needsUpdate = true;
-    }
-
-    if (object.userData?.role === 'boundary-sphere' && object.material) {
-      object.material.opacity = sceneVisuals.boundaryOpacity;
-      object.material.needsUpdate = true;
-    }
-  });
 }
