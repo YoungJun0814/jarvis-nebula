@@ -30,11 +30,11 @@ export function createApp(rootElement, options = {}) {
     <main class="nebula-app">
       <section class="nebula-stage">
         <div class="hud hud-brand">
-          <span class="eyebrow">Phase 3 Gesture Graph</span>
+          <span class="eyebrow">Phase 4 Adaptive Tracking</span>
           <h1>Jarvis Nebula</h1>
           <p>
             A live 3D knowledge sphere with Neo4j-backed graph queries, mouse-first navigation,
-            node inspection, and optional webcam-based hand gestures.
+            node inspection, and optional webcam-based hand plus pose tracking.
           </p>
         </div>
 
@@ -42,7 +42,7 @@ export function createApp(rootElement, options = {}) {
           <div class="panel-header">
             <span class="eyebrow">Graph Status</span>
             <div class="panel-actions">
-              <button type="button" class="ghost-button" data-hand-toggle>Enable Hands</button>
+              <button type="button" class="ghost-button" data-hand-toggle>Enable Tracking</button>
               <button type="button" class="ghost-button" data-reset-view>Reset View</button>
             </div>
           </div>
@@ -122,6 +122,15 @@ export function createApp(rootElement, options = {}) {
       handCount: 0,
       message: 'Hand tracking is off. Mouse and keyboard are still fully active.',
       lastAppliedGesture: 'none',
+      poseEnabled: false,
+      poseFallback: false,
+      poseZone: 'fixed',
+      poseMultiplier: 1,
+      poseDistance: 1,
+      poseVisible: false,
+      trackingBudgetMs: 0,
+      trackingFps: 0,
+      gestureIdle: false,
     },
     activeInput: 'mouse',
   };
@@ -135,7 +144,9 @@ export function createApp(rootElement, options = {}) {
         lastAppliedGesture:
           nextStatus.gesture === 'none' ? 'none' : state.handTracking.lastAppliedGesture,
       };
-      refs.handToggleButton.textContent = state.handTracking.enabled ? 'Disable Hands' : 'Enable Hands';
+      refs.handToggleButton.textContent = state.handTracking.enabled
+        ? 'Disable Tracking'
+        : 'Enable Tracking';
       renderStatusPanel(refs, state);
     },
     onFrame(frame) {
@@ -414,7 +425,8 @@ export function createApp(rootElement, options = {}) {
     switch (frame.gesture) {
       case 'open_palm':
       case 'fist': {
-        const strength = frame.gesture === 'fist' ? 1.35 : 0.95;
+        const sensitivity = frame.sensitivityMultiplier ?? 1;
+        const strength = (frame.gesture === 'fist' ? 1.35 : 0.95) * sensitivity;
         if (Math.hypot(frame.deltaNormalized.x, frame.deltaNormalized.y) > 0.003) {
           scene.orbitBy?.(frame.deltaNormalized.x, frame.deltaNormalized.y, strength);
         }
@@ -448,7 +460,7 @@ export function createApp(rootElement, options = {}) {
       }
       case 'zoom': {
         if (frame.stable && Math.abs(frame.zoomDelta) > 0.0025) {
-          scene.zoomBy?.(frame.zoomDelta);
+          scene.zoomBy?.(frame.zoomDelta * (frame.sensitivityMultiplier ?? 1));
         }
         break;
       }
@@ -571,6 +583,14 @@ function renderStatusPanel(refs, state) {
         <dt>Input</dt>
         <dd>${formatInputSource(state.activeInput)}</dd>
       </div>
+      <div>
+        <dt>Pose</dt>
+        <dd>${formatPoseStatus(state.handTracking)}</dd>
+      </div>
+      <div>
+        <dt>Sensitivity</dt>
+        <dd>${formatPoseZone(state.handTracking)}</dd>
+      </div>
     </dl>
     <section class="status-block">
       <span class="status-label">Last action</span>
@@ -587,6 +607,10 @@ function renderStatusPanel(refs, state) {
     <section class="status-block">
       <span class="status-label">Hand Tracking</span>
       <p>${state.handTracking.message}</p>
+    </section>
+    <section class="status-block">
+      <span class="status-label">Tracking Performance</span>
+      <p>${formatTrackingBudget(state.handTracking)}</p>
     </section>
     <section class="status-block">
       <span class="status-label">Cypher</span>
@@ -754,4 +778,39 @@ function formatGestureLabel(gesture) {
 function formatInputSource(source) {
   return source
     .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function formatPoseStatus(handTracking) {
+  if (!handTracking.enabled) {
+    return 'Off';
+  }
+
+  if (handTracking.poseFallback) {
+    return 'Fallback';
+  }
+
+  return handTracking.poseVisible ? 'Live' : 'Searching';
+}
+
+function formatPoseZone(handTracking) {
+  if (!handTracking.enabled) {
+    return 'Fixed';
+  }
+
+  return `${handTracking.poseZone.replace(/\b\w/g, (match) => match.toUpperCase())} x${handTracking.poseMultiplier.toFixed(2)}`;
+}
+
+function formatTrackingBudget(handTracking) {
+  if (!handTracking.enabled) {
+    return 'Tracking is currently off.';
+  }
+
+  const budget = `${handTracking.trackingBudgetMs.toFixed(1)}ms avg / ${Math.round(handTracking.trackingFps)} fps`;
+  if (handTracking.poseFallback) {
+    return `${budget}. Pose fallback is active to protect frame rate.`;
+  }
+
+  return handTracking.gestureIdle
+    ? `${budget}. Gesture idle detected, so mouse and keyboard remain primary.`
+    : `${budget}. Combined tracking is running within the live session.`;
 }

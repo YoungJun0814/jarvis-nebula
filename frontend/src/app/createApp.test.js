@@ -39,7 +39,7 @@ function createGraphFixture() {
 }
 
 describe('createApp', () => {
-  it('renders the phase 2 shell and queues commands locally', () => {
+  it('renders the phase 4 shell and queues commands locally', () => {
     const root = document.createElement('div');
 
     createApp(root, {
@@ -49,7 +49,7 @@ describe('createApp', () => {
 
     expect(root.querySelector('h1')?.textContent).toContain('Jarvis Nebula');
     expect(root.textContent).toContain('Node Inspector');
-    expect(root.textContent).toContain('Phase 3 Gesture Graph');
+    expect(root.textContent).toContain('Phase 4 Adaptive Tracking');
 
     const input = root.querySelector('#command-input');
     const form = root.querySelector('[data-command-form]');
