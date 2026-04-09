@@ -1,5 +1,6 @@
 import { generateDemoGraph } from '../graph/generateDemoGraph.js';
 import { createHandTrackingController } from '../input/createHandTrackingController.js';
+import { createHandOverlayRenderer } from '../input/createHandOverlayRenderer.js';
 import { createInputMerger } from '../input/createInputMerger.js';
 import { createNebulaScene } from '../render/createNebulaScene.js';
 import { GraphApiError, fetchGraphSnapshot, queryGraph } from '../services/graphApi.js';
@@ -30,11 +31,11 @@ export function createApp(rootElement, options = {}) {
     <main class="nebula-app">
       <section class="nebula-stage">
         <div class="hud hud-brand">
-          <span class="eyebrow">Phase 4 Adaptive Tracking</span>
+          <span class="eyebrow">Phase 5 Holographic Hands</span>
           <h1>Jarvis Nebula</h1>
           <p>
             A live 3D knowledge sphere with Neo4j-backed graph queries, mouse-first navigation,
-            node inspection, and optional webcam-based hand plus pose tracking.
+            node inspection, adaptive tracking, and a live holographic hand overlay.
           </p>
         </div>
 
@@ -59,6 +60,7 @@ export function createApp(rootElement, options = {}) {
         </div>
 
         <div class="nebula-canvas" data-graph-root></div>
+        <canvas class="hand-overlay-canvas" data-hand-overlay></canvas>
         <div class="nebula-tooltip" data-tooltip hidden></div>
         <video class="hand-video-feed" data-hand-video autoplay muted playsinline></video>
       </section>
@@ -80,6 +82,7 @@ export function createApp(rootElement, options = {}) {
   const refs = {
     graphRoot: rootElement.querySelector('[data-graph-root]'),
     tooltip: rootElement.querySelector('[data-tooltip]'),
+    handOverlay: rootElement.querySelector('[data-hand-overlay]'),
     nodePanel: rootElement.querySelector('[data-node-panel]'),
     statusContent: rootElement.querySelector('[data-status-content]'),
     commandForm: rootElement.querySelector('[data-command-form]'),
@@ -134,6 +137,9 @@ export function createApp(rootElement, options = {}) {
     },
     activeInput: 'mouse',
   };
+  const handOverlayRenderer = createHandOverlayRenderer({
+    canvasElement: refs.handOverlay,
+  });
 
   const handTrackingController = handTrackingFactory({
     videoElement: refs.handVideo,
@@ -147,6 +153,10 @@ export function createApp(rootElement, options = {}) {
       refs.handToggleButton.textContent = state.handTracking.enabled
         ? 'Disable Tracking'
         : 'Enable Tracking';
+      if (!state.handTracking.enabled) {
+        handOverlayRenderer.clear();
+        scene?.clearGestureLaser?.();
+      }
       renderStatusPanel(refs, state);
     },
     onFrame(frame) {
@@ -256,6 +266,7 @@ export function createApp(rootElement, options = {}) {
 
       window.removeEventListener('keydown', handleKeydown);
       handTrackingController.destroy();
+      handOverlayRenderer.destroy();
       scene?.destroy?.();
     },
   };
@@ -405,8 +416,11 @@ export function createApp(rootElement, options = {}) {
     };
 
     if (!scene) {
+      handOverlayRenderer.render(frame);
       return;
     }
+
+    handOverlayRenderer.render(frame);
 
     if (frame.gesture !== state.handTracking.lastAppliedGesture && frame.gesture !== 'none') {
       state.lastAction = `Gesture active: ${formatGestureLabel(frame.gesture)}.`;
@@ -419,6 +433,7 @@ export function createApp(rootElement, options = {}) {
       if (frame.gesturePhase === 'IDLE') {
         scene.clearGesturePreview?.();
       }
+      scene.clearGestureLaser?.();
       return;
     }
 
@@ -435,6 +450,11 @@ export function createApp(rootElement, options = {}) {
       case 'point': {
         if (frame.pointerNormalized) {
           scene.previewNodeAtNormalized?.(frame.pointerNormalized.x, frame.pointerNormalized.y);
+          scene.setGestureLaser?.(
+            frame.pointerNormalized.x,
+            frame.pointerNormalized.y,
+            frame.confidence,
+          );
         }
 
         if (frame.stable && frame.holdFrames === 6 && frame.pointerNormalized) {
@@ -450,6 +470,7 @@ export function createApp(rootElement, options = {}) {
         break;
       }
       case 'pinch': {
+        scene.clearGestureLaser?.();
         if (frame.stable && frame.holdFrames === 6) {
           state.lastAction = state.selectedNode
             ? `Gesture confirm on ${state.selectedNode.name}.`
@@ -459,12 +480,14 @@ export function createApp(rootElement, options = {}) {
         break;
       }
       case 'zoom': {
+        scene.clearGestureLaser?.();
         if (frame.stable && Math.abs(frame.zoomDelta) > 0.0025) {
           scene.zoomBy?.(frame.zoomDelta * (frame.sensitivityMultiplier ?? 1));
         }
         break;
       }
       case 'swipe': {
+        scene.clearGestureLaser?.();
         if (frame.holdFrames === 2) {
           syncSelection(null);
           scene.clearGesturePreview?.();
@@ -478,6 +501,7 @@ export function createApp(rootElement, options = {}) {
         break;
       }
       default:
+        scene.clearGestureLaser?.();
         break;
     }
   }

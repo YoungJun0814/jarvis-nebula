@@ -112,6 +112,7 @@ export function createNebulaScene({
   graph.__nebulaRenderer = renderer;
 
   decorateScene(graph.scene());
+  configureGestureLaser(graph.scene(), graph);
   configureBloom(graph, container);
   resizeGraph(graph, container);
   window.setTimeout(() => syncVisualState(), 0);
@@ -241,6 +242,12 @@ export function createNebulaScene({
     },
     clearGesturePreview() {
       onNodeHover(null, 'gesture');
+    },
+    setGestureLaser(normalizedX, normalizedY, intensity = 1) {
+      updateGestureLaser(graph, graphData, normalizedX, normalizedY, intensity);
+    },
+    clearGestureLaser() {
+      updateGestureLaser(graph, graphData, null, null, 0);
     },
     destroy() {
       window.removeEventListener('resize', handleResize);
@@ -479,6 +486,24 @@ function configureBloom(graph, container) {
   graph.__nebulaBloomPass = bloomPass;
 }
 
+function configureGestureLaser(scene, graph) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3),
+  );
+  const material = new THREE.LineBasicMaterial({
+    color: '#76f8ff',
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+  });
+  const line = new THREE.Line(geometry, material);
+  line.visible = false;
+  scene.add(line);
+  graph.__gestureLaser = line;
+}
+
 function updateBloom(graph, container) {
   const bloomPass = graph.__nebulaBloomPass;
   if (!bloomPass) {
@@ -496,6 +521,44 @@ function resizeGraph(graph, container) {
 
   graph.width(width);
   graph.height(height);
+}
+
+function updateGestureLaser(graph, graphData, normalizedX, normalizedY, intensity) {
+  const laser = graph.__gestureLaser;
+  if (!laser) {
+    return;
+  }
+
+  if (typeof normalizedX !== 'number' || typeof normalizedY !== 'number' || intensity <= 0) {
+    laser.visible = false;
+    return;
+  }
+
+  const viewportX = THREE.MathUtils.clamp(normalizedX * 2 - 1, -1, 1);
+  const viewportY = THREE.MathUtils.clamp(-(normalizedY * 2 - 1), -1, 1);
+  raycaster.setFromCamera({ x: viewportX, y: viewportY }, graph.camera());
+
+  const nodeObjects = graphData.nodes
+    .map((node) => node.__threeObj)
+    .filter(Boolean);
+  const intersections = raycaster.intersectObjects(nodeObjects, true);
+  const hit = intersections.find((intersection) => intersection.object.visible !== false);
+  const origin = raycaster.ray.origin.clone();
+  const endPoint = hit?.point
+    ? hit.point.clone()
+    : raycaster.ray.origin.clone().add(raycaster.ray.direction.clone().multiplyScalar(220));
+  const positions = laser.geometry.attributes.position.array;
+
+  positions[0] = origin.x;
+  positions[1] = origin.y;
+  positions[2] = origin.z;
+  positions[3] = endPoint.x;
+  positions[4] = endPoint.y;
+  positions[5] = endPoint.z;
+  laser.geometry.attributes.position.needsUpdate = true;
+  laser.geometry.computeBoundingSphere();
+  laser.material.opacity = Math.max(0.22, Math.min(intensity, 1)) * 0.85;
+  laser.visible = true;
 }
 
 function applyNodeVisualState(object, node, selectionState) {
