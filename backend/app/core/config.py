@@ -32,5 +32,5 @@ settings = Settings(
     gemini_api_key=os.getenv("GEMINI_API_KEY"),
     ws_path="/ws",
     product_language="en",
-    phase="phase6_voice_commands",
+    phase="phase7_interaction_polish",
 )

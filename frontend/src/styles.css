@@ -107,7 +107,8 @@ input {
 
 .hud-brand p,
 .status-block p,
-.node-panel p {
+.node-panel p,
+.help-card p {
   margin: 0;
   color: var(--text-secondary);
   line-height: 1.65;
@@ -236,6 +237,38 @@ input {
   border-radius: 24px;
 }
 
+.help-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 7, 14, 0.62);
+  backdrop-filter: blur(12px);
+}
+
+.help-card {
+  width: min(560px, 100%);
+  padding: 22px 24px 24px;
+  border-radius: 28px;
+  border: 1px solid rgba(112, 214, 255, 0.2);
+  background: rgba(5, 11, 22, 0.92);
+  box-shadow: var(--panel-shadow);
+}
+
+.help-card h2 {
+  margin: 10px 0 12px;
+  font-size: clamp(1.8rem, 3vw, 2.4rem);
+}
+
+.help-list {
+  margin: 18px 0 0;
+  padding-left: 1.15rem;
+  color: var(--text-secondary);
+  line-height: 1.8;
+}
+
 .node-panel h2 {
   margin: 10px 0 12px;
   font-size: 1.8rem;
@@ -334,6 +367,11 @@ kbd {
 
 .command-bar button:hover {
   filter: brightness(1.06);
+}
+
+.command-bar button:disabled {
+  cursor: wait;
+  opacity: 0.76;
 }
 
 .nebula-tooltip {

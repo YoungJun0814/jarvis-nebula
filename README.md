@@ -4,7 +4,7 @@ Jarvis Nebula is an AI assistant with a 3D spatial interface. The product vision
 
 ## Current Status
 
-This repository now includes the full Phase 0 scaffold, the Phase 1 frontend shell, the Phase 2 graph query flow, the Phase 3 hand-tracking gesture layer, the Phase 4 adaptive pose sensitivity layer, the Phase 5 holographic hand overlay, and the Phase 6 voice command layer.
+This repository now includes the full Phase 0 scaffold, the Phase 1 frontend shell, the Phase 2 graph query flow, the Phase 3 hand-tracking gesture layer, the Phase 4 adaptive pose sensitivity layer, the Phase 5 holographic hand overlay, the Phase 6 voice command layer, and the Phase 7 interaction polish pass.
 
 - The main architecture and scope are defined in `PROJECT_PLAN.md`.
 - Frontend and backend manifests are in place.
@@ -16,7 +16,8 @@ This repository now includes the full Phase 0 scaffold, the Phase 1 frontend she
 - Phase 4 adds pose-based distance sensitivity, gesture idle detection, and automatic fixed-sensitivity fallback when pose performance drops.
 - Phase 5 adds a transparent hand skeleton overlay, gesture labels, and a 3D pointing laser that locks onto hovered nodes.
 - Phase 6 adds microphone capture, push-to-talk shortcuts, faster-whisper transcription, command routing, recognition chimes, and spoken feedback.
-- The next step is Phase 7: polish input coexistence, help overlays, and performance tuning across all active modalities.
+- Phase 7 adds targeted voice-plus-point commands, GSAP node transitions, particle depth, distant-node LOD, help overlays, and final multimodal polish.
+- The next step is Phase 8: connect the agent runtime, safety confirmations, and task graph updates.
 
 ## Locked Decisions
 
@@ -127,8 +128,8 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d
 
 ## What Happens Next
 
-Phase 6 is now implemented locally. The next implementation step is:
+Phase 7 is now implemented locally. The next implementation step is:
 
-1. Start Phase 7 by tightening cross-input edge cases and adding explicit help and loading polish.
-2. Keep gesture, mouse, keyboard, text, and voice active together without one input starving the others.
-3. Preserve the Neo4j-backed graph query flow while multimodal orchestration becomes smoother.
+1. Start Phase 8 by connecting the agent runtime to the current graph context and command stack.
+2. Keep the new multimodal input layer stable while agent confirmation and tool execution are added.
+3. Preserve the Neo4j-backed graph query flow while task execution becomes stateful.

@@ -35,11 +35,11 @@ export function createApp(rootElement, options = {}) {
     <main class="nebula-app">
       <section class="nebula-stage">
         <div class="hud hud-brand">
-          <span class="eyebrow">Phase 6 Voice Commands</span>
+          <span class="eyebrow">Phase 7 Interaction Polish</span>
           <h1>Jarvis Nebula</h1>
           <p>
             A live 3D knowledge sphere with Neo4j-backed graph queries, mouse-first navigation,
-            node inspection, adaptive tracking, and voice command routing across the graph UI.
+            node inspection, adaptive tracking, voice command routing, and polished multimodal help.
           </p>
         </div>
 
@@ -55,12 +55,32 @@ export function createApp(rootElement, options = {}) {
         </section>
 
         <aside class="hud node-panel" data-node-panel></aside>
+        <aside class="help-overlay" data-help-overlay hidden>
+          <div class="help-card">
+            <div class="panel-header">
+              <span class="eyebrow">Phase 7 Help</span>
+              <button type="button" class="ghost-button" data-help-close>Close</button>
+            </div>
+            <h2>Shortcut Guide</h2>
+            <p>Mouse, text, gesture, and voice can all stay live at the same time.</p>
+            <ul class="help-list">
+              <li><kbd>Drag</kbd> orbit the sphere</li>
+              <li><kbd>Wheel</kbd> zoom the camera</li>
+              <li><kbd>Space</kbd> freeze or resume layout</li>
+              <li><kbd>Esc</kbd> reset the current view</li>
+              <li><kbd>V</kbd> hold to talk</li>
+              <li><kbd>?</kbd> toggle this help overlay</li>
+              <li>Point + voice targets the hovered node when one is active</li>
+            </ul>
+          </div>
+        </aside>
 
         <div class="hud shortcut-strip">
           <span><kbd>Drag</kbd> orbit</span>
           <span><kbd>Wheel</kbd> zoom</span>
           <span><kbd>Space</kbd> freeze</span>
           <span><kbd>Esc</kbd> reset</span>
+          <span><kbd>?</kbd> help</span>
         </div>
 
         <div class="nebula-canvas" data-graph-root></div>
@@ -79,7 +99,7 @@ export function createApp(rootElement, options = {}) {
           placeholder="Try: show projects, show archive, show connected nodes, atlas launch"
         />
         <button type="button" class="voice-button" data-voice-toggle>Mic</button>
-        <button type="submit">Run Query</button>
+        <button type="submit" data-command-submit>Run Query</button>
       </form>
     </main>
   `;
@@ -88,10 +108,13 @@ export function createApp(rootElement, options = {}) {
     graphRoot: rootElement.querySelector('[data-graph-root]'),
     tooltip: rootElement.querySelector('[data-tooltip]'),
     handOverlay: rootElement.querySelector('[data-hand-overlay]'),
+    helpOverlay: rootElement.querySelector('[data-help-overlay]'),
+    helpCloseButton: rootElement.querySelector('[data-help-close]'),
     nodePanel: rootElement.querySelector('[data-node-panel]'),
     statusContent: rootElement.querySelector('[data-status-content]'),
     commandForm: rootElement.querySelector('[data-command-form]'),
     commandInput: rootElement.querySelector('#command-input'),
+    commandSubmitButton: rootElement.querySelector('[data-command-submit]'),
     voiceToggleButton: rootElement.querySelector('[data-voice-toggle]'),
     handToggleButton: rootElement.querySelector('[data-hand-toggle]'),
     handVideo: rootElement.querySelector('[data-hand-video]'),
@@ -150,6 +173,7 @@ export function createApp(rootElement, options = {}) {
       lastTranscript: 'No voice command captured yet.',
     },
     graphHistory: [],
+    helpOpen: false,
     activeInput: 'mouse',
   };
   const handOverlayRenderer = createHandOverlayRenderer({
@@ -217,6 +241,9 @@ export function createApp(rootElement, options = {}) {
       pointerFrameId = null;
     });
   });
+  refs.commandInput.addEventListener('input', () => {
+    markInputActivity('text');
+  });
 
   refs.commandForm.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -237,6 +264,9 @@ export function createApp(rootElement, options = {}) {
   });
   refs.handToggleButton.addEventListener('click', () => {
     void handleHandToggle();
+  });
+  refs.helpCloseButton.addEventListener('click', () => {
+    toggleHelp(false);
   });
   refs.voiceToggleButton.addEventListener('click', () => {
     markInputActivity('voice');
@@ -372,6 +402,10 @@ export function createApp(rootElement, options = {}) {
   }
 
   async function runGraphCommand(command, source = 'text') {
+    const targetNode =
+      source === 'voice' && state.handTracking.gesture === 'point'
+        ? state.hoveredNode ?? state.selectedNode
+        : state.selectedNode;
     state.queuedCommand = command;
 
     if (!remoteGraphEnabled || !graphApi?.queryGraph) {
@@ -390,7 +424,7 @@ export function createApp(rootElement, options = {}) {
       const response = await graphApi.queryGraph({
         command,
         visible_node_ids: state.graphData.nodes.map((node) => node.id),
-        selected_node_ids: state.selectedNode ? [state.selectedNode.id] : [],
+        selected_node_ids: targetNode ? [targetNode.id] : [],
       });
 
       refs.commandInput.value = '';
@@ -407,7 +441,9 @@ export function createApp(rootElement, options = {}) {
       }
 
       applyGraphResponse(response, {
-        action: `Applied ${source} query result for "${command}".`,
+        action: targetNode
+          ? `Applied ${source} query result for "${command}" with ${targetNode.name} as the active target.`
+          : `Applied ${source} query result for "${command}".`,
         rememberPrevious: true,
       });
     } catch (error) {
@@ -513,11 +549,17 @@ export function createApp(rootElement, options = {}) {
   }
 
   async function queueAgentVoiceTask(command) {
-    state.lastAction = `Voice routed "${command}" to the Phase 8 agent placeholder.`;
+    const targetNode =
+      state.handTracking.gesture === 'point'
+        ? state.hoveredNode ?? state.selectedNode
+        : state.selectedNode;
+    state.lastAction = targetNode
+      ? `Voice routed "${command}" with ${targetNode.name} as context to the Phase 8 agent placeholder.`
+      : `Voice routed "${command}" to the Phase 8 agent placeholder.`;
     renderStatusPanel(refs, state);
     console.warn('[Jarvis Nebula][voice-agent-placeholder]', {
       command,
-      selectedNodeId: state.selectedNode?.id ?? null,
+      selectedNodeId: targetNode?.id ?? null,
     });
 
     try {
@@ -528,7 +570,7 @@ export function createApp(rootElement, options = {}) {
         },
         body: JSON.stringify({
           command,
-          selected_node_ids: state.selectedNode ? [state.selectedNode.id] : [],
+          selected_node_ids: targetNode ? [targetNode.id] : [],
         }),
       });
       speakFeedback('Agent placeholder queued.');
@@ -692,6 +734,13 @@ export function createApp(rootElement, options = {}) {
     const isTextInput =
       event.target instanceof HTMLElement && event.target.closest('input, textarea');
 
+    if (event.key === '?' && !isTextInput) {
+      markInputActivity('keyboard');
+      event.preventDefault();
+      toggleHelp();
+      return;
+    }
+
     if (event.code === 'Space' && !isTextInput) {
       markInputActivity('keyboard');
       event.preventDefault();
@@ -722,6 +771,12 @@ export function createApp(rootElement, options = {}) {
       event.preventDefault();
       voiceController.stop();
     }
+  }
+
+  function toggleHelp(forceValue) {
+    state.helpOpen = typeof forceValue === 'boolean' ? forceValue : !state.helpOpen;
+    refs.helpOverlay.hidden = !state.helpOpen;
+    refs.helpOverlay.setAttribute('aria-hidden', String(!state.helpOpen));
   }
 
   function handleReset() {
@@ -772,6 +827,9 @@ export function createApp(rootElement, options = {}) {
 }
 
 function renderStatusPanel(refs, state) {
+  refs.commandSubmitButton.textContent = state.isSyncing ? 'Working...' : 'Run Query';
+  refs.commandSubmitButton.disabled = state.isSyncing;
+
   refs.statusContent.innerHTML = `
     <dl class="status-grid">
       <div>

@@ -1,4 +1,5 @@
 import ForceGraph3D from '3d-force-graph';
+import { gsap } from 'gsap';
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
@@ -48,6 +49,7 @@ const RENDER_CONFIG = {
   controlsRotateSpeed: 0.65,
   controlsZoomSpeed: 0.85,
   hoveredLinkColor: '#ffea00',
+  lodDistance: 320,
 };
 
 const geometryCache = new Map();
@@ -258,7 +260,7 @@ export function createNebulaScene({
     const selectionState = getSelectionState();
 
     graphData.nodes.forEach((node) => {
-      applyNodeVisualState(node.__threeObj, node, selectionState);
+      applyNodeVisualState(node.__threeObj, node, selectionState, graph.cameraPosition());
     });
 
     graphData.links.forEach((link) => {
@@ -340,13 +342,29 @@ function createNodeMesh(node, selectionState) {
   const ring = new THREE.Mesh(getSphereGeometry(radius * 2.18), ringMaterial);
   ring.visible = false;
   group.add(ring);
+  const lodSprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      color: baseColor.clone(),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    }),
+  );
+  lodSprite.scale.setScalar(radius * 2.4);
+  lodSprite.visible = false;
+  group.add(lodSprite);
+  group.traverse((child) => {
+    child.frustumCulled = true;
+  });
 
   group.userData = {
     baseColor,
+    core,
     coreMaterial,
     graphNode: node,
     haloMaterial,
     halo,
+    lodSprite,
     ring,
   };
   applyNodeVisualState(group, node, selectionStateData);
@@ -434,6 +452,7 @@ function decorateScene(scene) {
   scene.add(rimLight);
 
   scene.add(createStarField());
+  scene.add(createNebulaDust());
 }
 
 function createStarField() {
@@ -484,6 +503,40 @@ function configureBloom(graph, container) {
 
   composer.addPass(bloomPass);
   graph.__nebulaBloomPass = bloomPass;
+}
+
+function createNebulaDust() {
+  const particleCount = 520;
+  const positions = new Float32Array(particleCount * 3);
+
+  for (let index = 0; index < particleCount; index += 1) {
+    const radius = 90 + Math.random() * 120;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const offset = index * 3;
+
+    positions[offset] = radius * Math.sin(phi) * Math.cos(theta);
+    positions[offset + 1] = radius * Math.sin(phi) * Math.sin(theta) * 0.45;
+    positions[offset + 2] = radius * Math.cos(phi);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+  const dust = new THREE.Points(
+    geometry,
+    new THREE.PointsMaterial({
+      color: '#5bd7ff',
+      size: 1.8,
+      transparent: true,
+      opacity: 0.08,
+      depthWrite: false,
+    }),
+  );
+  dust.userData = {
+    isNebulaDust: true,
+  };
+  return dust;
 }
 
 function configureGestureLaser(scene, graph) {
@@ -561,27 +614,61 @@ function updateGestureLaser(graph, graphData, normalizedX, normalizedY, intensit
   laser.visible = true;
 }
 
-function applyNodeVisualState(object, node, selectionState) {
+function applyNodeVisualState(
+  object,
+  node,
+  selectionState,
+  cameraPosition = INITIAL_CAMERA,
+) {
   if (!object?.userData?.coreMaterial || !object.userData.baseColor) return;
 
   const isHovered = node.id === selectionState.hoveredNodeId;
   const visuals = getNodeVisuals(node.id, selectionState, isHovered);
-  const { coreMaterial, haloMaterial, ring, halo, baseColor } = object.userData;
+  const { core, coreMaterial, haloMaterial, ring, halo, lodSprite, baseColor } = object.userData;
+  const useLod =
+    shouldUseLod(selectionState, node.id, cameraPosition, object.position) && !visuals.overrideColor;
 
   const renderColor = visuals.overrideColor ? new THREE.Color(RENDER_CONFIG.hoveredLinkColor) : baseColor;
+  const visualSignature = `${visuals.bloom}:${visuals.opacity}:${visuals.halo}:${visuals.scale}:${useLod}`;
 
   coreMaterial.color.copy(new THREE.Color('#ffffff'));
   coreMaterial.emissive.copy(renderColor).multiplyScalar(visuals.bright * 0.8);
-  coreMaterial.emissiveIntensity = visuals.bloom;
-  coreMaterial.opacity = visuals.opacity;
-  coreMaterial.needsUpdate = true;
+  haloMaterial.color
+    .copy(renderColor)
+    .multiplyScalar(Math.max(visuals.bright, visuals.scale > 1.8 ? 0.8 : 0.56));
 
-  halo.scale.setScalar(visuals.scale);
-  haloMaterial.color.copy(renderColor).multiplyScalar(Math.max(visuals.bright, visuals.scale > 1.8 ? 0.8 : 0.56));
-  haloMaterial.opacity = visuals.halo;
+  if (object.userData.lastVisualSignature !== visualSignature) {
+    object.userData.lastVisualSignature = visualSignature;
+    gsap.to(coreMaterial, {
+      emissiveIntensity: visuals.bloom,
+      opacity: visuals.opacity,
+      duration: 0.28,
+      overwrite: 'auto',
+    });
+    gsap.to(halo.scale, {
+      x: visuals.scale,
+      y: visuals.scale,
+      z: visuals.scale,
+      duration: 0.35,
+      ease: 'power2.out',
+      overwrite: 'auto',
+    });
+    gsap.to(haloMaterial, {
+      opacity: visuals.halo,
+      duration: 0.32,
+      overwrite: 'auto',
+    });
+  }
+
+  core.visible = !useLod;
+  halo.visible = !useLod;
+  ring.visible = !useLod && visuals.scale > 1.8;
+  lodSprite.visible = useLod;
+  lodSprite.material.color.copy(renderColor);
+  lodSprite.material.opacity = useLod ? Math.max(0.16, visuals.opacity * 0.8) : 0;
+  lodSprite.scale.setScalar(2.6 + Math.min(node.connections, 8) * 0.16);
   haloMaterial.needsUpdate = true;
-
-  ring.visible = visuals.scale > 1.8;
+  coreMaterial.needsUpdate = true;
 }
 
 function applyLinkVisualState(object, link, selectionState) {
@@ -633,6 +720,7 @@ function applySceneVisualState(graph, selectionState) {
   const sceneVisuals = selectionState.selectedNodeId ? FOCUS_SCENE_VISUALS : DEFAULT_SCENE_VISUALS;
   const bloomPass = graph.__nebulaBloomPass;
   const renderer = graph.__nebulaRenderer;
+  const dust = graph.scene().children.find((child) => child.userData?.isNebulaDust);
 
   if (bloomPass) {
     bloomPass.strength = sceneVisuals.bloomStrength;
@@ -643,4 +731,26 @@ function applySceneVisualState(graph, selectionState) {
   if (renderer) {
     renderer.toneMappingExposure = sceneVisuals.toneMappingExposure;
   }
+
+  if (dust) {
+    dust.rotation.y += 0.0008;
+    dust.rotation.x += 0.0002;
+  }
+}
+
+function shouldUseLod(selectionState, nodeId, cameraPosition, nodePosition) {
+  const isFocused =
+    nodeId === selectionState.selectedNodeId ||
+    selectionState.connectedNodeIds?.has(nodeId) ||
+    selectionState.hoveredConnectedNodeIds?.has(nodeId);
+  if (isFocused) {
+    return false;
+  }
+
+  const safeCameraPosition = cameraPosition ?? INITIAL_CAMERA;
+  const safeNodePosition = nodePosition ?? ORIGIN;
+  const dx = (safeCameraPosition.x ?? 0) - (safeNodePosition.x ?? 0);
+  const dy = (safeCameraPosition.y ?? 0) - (safeNodePosition.y ?? 0);
+  const dz = (safeCameraPosition.z ?? 0) - (safeNodePosition.z ?? 0);
+  return Math.hypot(dx, dy, dz) > RENDER_CONFIG.lodDistance;
 }

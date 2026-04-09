@@ -42,7 +42,7 @@ function createGraphFixture() {
 }
 
 describe('createApp', () => {
-  it('renders the phase 6 shell and queues commands locally', () => {
+  it('renders the phase 7 shell and queues commands locally', () => {
     const root = document.createElement('div');
 
     createApp(root, {
@@ -52,7 +52,7 @@ describe('createApp', () => {
 
     expect(root.querySelector('h1')?.textContent).toContain('Jarvis Nebula');
     expect(root.textContent).toContain('Node Inspector');
-    expect(root.textContent).toContain('Phase 6 Voice Commands');
+    expect(root.textContent).toContain('Phase 7 Interaction Polish');
     expect(root.textContent).toContain('Mic');
 
     const input = root.querySelector('#command-input');
