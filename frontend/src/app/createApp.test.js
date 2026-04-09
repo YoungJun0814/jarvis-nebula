@@ -49,7 +49,7 @@ describe('createApp', () => {
 
     expect(root.querySelector('h1')?.textContent).toContain('Jarvis Nebula');
     expect(root.textContent).toContain('Node Inspector');
-    expect(root.textContent).toContain('Phase 2 Live Graph');
+    expect(root.textContent).toContain('Phase 3 Gesture Graph');
 
     const input = root.querySelector('#command-input');
     const form = root.querySelector('[data-command-form]');

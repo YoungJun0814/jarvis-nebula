@@ -4,7 +4,7 @@ Jarvis Nebula is an AI assistant with a 3D spatial interface. The product vision
 
 ## Current Status
 
-This repository now includes the full Phase 0 scaffold, the Phase 1 frontend shell, and a live Phase 2 graph query flow.
+This repository now includes the full Phase 0 scaffold, the Phase 1 frontend shell, the Phase 2 graph query flow, and the Phase 3 hand-tracking gesture layer.
 
 - The main architecture and scope are defined in `PROJECT_PLAN.md`.
 - Frontend and backend manifests are in place.
@@ -12,7 +12,8 @@ This repository now includes the full Phase 0 scaffold, the Phase 1 frontend she
 - Lint, format, unit test, and end-to-end test configs are in place.
 - Phase 1 renders the 3D nebula with mouse navigation, node inspection, and a command bar.
 - Phase 2 loads graph data from Neo4j, seeds the local database on first run, and routes read-only text queries through the backend.
-- The next step is Phase 3: add webcam-based hand tracking and gesture controls on top of the existing mouse interaction model.
+- Phase 3 adds optional webcam-based hand gestures for orbit, hover/select, confirm, and zoom while keeping mouse and keyboard active.
+- The next step is Phase 4: add pose-based distance sensitivity and performance-aware tracking fallback.
 
 ## Locked Decisions
 
@@ -123,8 +124,8 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d
 
 ## What Happens Next
 
-Phase 2 is now implemented locally. The next implementation step is:
+Phase 3 is now implemented locally. The next implementation step is:
 
-1. Start Phase 3 by adding MediaPipe Hands tracking without regressing mouse and keyboard behavior.
-2. Route gesture events into the existing graph focus, select, and zoom controls.
-3. Keep the current Neo4j-backed graph flow stable while multimodal inputs are layered in.
+1. Start Phase 4 by adding pose-based distance sensitivity on top of the current hand gesture system.
+2. Keep gesture tracking non-blocking so mouse, keyboard, and text remain first-class inputs.
+3. Preserve the Neo4j-backed graph query flow while multimodal input state becomes richer.

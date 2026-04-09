@@ -47,12 +47,13 @@ const RENDER_CONFIG = {
   controlsMaxDistance: 1600,
   controlsRotateSpeed: 0.65,
   controlsZoomSpeed: 0.85,
-  hoveredLinkColor: '#ffea00'
+  hoveredLinkColor: '#ffea00',
 };
 
 const geometryCache = new Map();
 const ORIGIN = Object.freeze({ x: 0, y: 0, z: 0 });
 const INITIAL_CAMERA = { x: 0, y: 28, z: 430 };
+const raycaster = new THREE.Raycaster();
 
 export function createNebulaScene({
   container,
@@ -84,9 +85,9 @@ export function createNebulaScene({
     .linkDirectionalParticles(0)
     .d3AlphaDecay(RENDER_CONFIG.d3AlphaDecay)
     .d3VelocityDecay(RENDER_CONFIG.d3VelocityDecay)
-    .onNodeHover((node) => onNodeHover(node))
-    .onNodeClick((node) => onNodeClick(node))
-    .onBackgroundClick(() => onBackgroundClick());
+    .onNodeHover((node) => onNodeHover(node, 'mouse'))
+    .onNodeClick((node) => onNodeClick(node, 'mouse'))
+    .onBackgroundClick(() => onBackgroundClick('mouse'));
 
   graph.cameraPosition(INITIAL_CAMERA, ORIGIN, 0);
 
@@ -193,6 +194,54 @@ export function createNebulaScene({
         window.setTimeout(() => graph.pauseAnimation(), 940);
       }
     },
+    orbitBy(deltaX, deltaY, strength = 1) {
+      const azimuth = deltaX * Math.PI * 0.95 * strength;
+      const polar = deltaY * Math.PI * 0.8 * strength;
+
+      controls.rotateLeft(-azimuth);
+      controls.rotateUp(-polar);
+      controls.update();
+      graph.refresh();
+    },
+    zoomBy(delta) {
+      const currentPosition = graph.cameraPosition();
+      const target = controls.target.clone();
+      const cameraVector = new THREE.Vector3(
+        currentPosition.x - target.x,
+        currentPosition.y - target.y,
+        currentPosition.z - target.z,
+      );
+      const scale = THREE.MathUtils.clamp(1 - delta * 5, 0.88, 1.14);
+      const nextVector = cameraVector.multiplyScalar(scale);
+
+      graph.cameraPosition(
+        {
+          x: target.x + nextVector.x,
+          y: target.y + nextVector.y,
+          z: target.z + nextVector.z,
+        },
+        { x: target.x, y: target.y, z: target.z },
+        75,
+      );
+    },
+    previewNodeAtNormalized(normalizedX, normalizedY) {
+      const node = pickNodeAtNormalized(normalizedX, normalizedY);
+      onNodeHover(node, 'gesture');
+      return node;
+    },
+    selectNodeAtNormalized(normalizedX, normalizedY) {
+      const node = pickNodeAtNormalized(normalizedX, normalizedY);
+      if (node) {
+        onNodeClick(node, 'gesture');
+      } else {
+        onBackgroundClick('gesture');
+      }
+
+      return node;
+    },
+    clearGesturePreview() {
+      onNodeHover(null, 'gesture');
+    },
     destroy() {
       window.removeEventListener('resize', handleResize);
     },
@@ -210,6 +259,33 @@ export function createNebulaScene({
     });
 
     applySceneVisualState(graph, selectionState);
+  }
+
+  function pickNodeAtNormalized(normalizedX, normalizedY) {
+    if (typeof normalizedX !== 'number' || typeof normalizedY !== 'number') {
+      return null;
+    }
+
+    const viewportX = THREE.MathUtils.clamp(normalizedX * 2 - 1, -1, 1);
+    const viewportY = THREE.MathUtils.clamp(-(normalizedY * 2 - 1), -1, 1);
+
+    raycaster.setFromCamera({ x: viewportX, y: viewportY }, graph.camera());
+    const nodeObjects = graphData.nodes
+      .map((node) => node.__threeObj)
+      .filter(Boolean);
+    const intersections = raycaster.intersectObjects(nodeObjects, true);
+    const hit = intersections.find((intersection) => intersection.object.visible !== false);
+
+    if (!hit) {
+      return null;
+    }
+
+    let currentObject = hit.object;
+    while (currentObject && !currentObject.userData?.graphNode && currentObject.parent) {
+      currentObject = currentObject.parent;
+    }
+
+    return currentObject?.userData?.graphNode ?? null;
   }
 }
 
@@ -261,6 +337,7 @@ function createNodeMesh(node, selectionState) {
   group.userData = {
     baseColor,
     coreMaterial,
+    graphNode: node,
     haloMaterial,
     halo,
     ring,

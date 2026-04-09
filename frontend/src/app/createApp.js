@@ -1,4 +1,6 @@
 import { generateDemoGraph } from '../graph/generateDemoGraph.js';
+import { createHandTrackingController } from '../input/createHandTrackingController.js';
+import { createInputMerger } from '../input/createInputMerger.js';
 import { createNebulaScene } from '../render/createNebulaScene.js';
 import { GraphApiError, fetchGraphSnapshot, queryGraph } from '../services/graphApi.js';
 import {
@@ -15,6 +17,7 @@ export function createApp(rootElement, options = {}) {
   }
 
   const graphFactory = options.graphFactory ?? createNebulaScene;
+  const handTrackingFactory = options.handTrackingFactory ?? createHandTrackingController;
   const fallbackGraphData = options.graphData ?? generateDemoGraph(500);
   const graphApi = options.graphApi ?? {
     fetchGraphSnapshot,
@@ -27,18 +30,21 @@ export function createApp(rootElement, options = {}) {
     <main class="nebula-app">
       <section class="nebula-stage">
         <div class="hud hud-brand">
-          <span class="eyebrow">Phase 2 Live Graph</span>
+          <span class="eyebrow">Phase 3 Gesture Graph</span>
           <h1>Jarvis Nebula</h1>
           <p>
-            A live 3D knowledge sphere backed by Neo4j, with mouse-first navigation,
-            node inspection, and a read-only graph command bar.
+            A live 3D knowledge sphere with Neo4j-backed graph queries, mouse-first navigation,
+            node inspection, and optional webcam-based hand gestures.
           </p>
         </div>
 
         <section class="hud status-panel" data-status-panel>
           <div class="panel-header">
             <span class="eyebrow">Graph Status</span>
-            <button type="button" class="ghost-button" data-reset-view>Reset View</button>
+            <div class="panel-actions">
+              <button type="button" class="ghost-button" data-hand-toggle>Enable Hands</button>
+              <button type="button" class="ghost-button" data-reset-view>Reset View</button>
+            </div>
           </div>
           <div data-status-content></div>
         </section>
@@ -54,6 +60,7 @@ export function createApp(rootElement, options = {}) {
 
         <div class="nebula-canvas" data-graph-root></div>
         <div class="nebula-tooltip" data-tooltip hidden></div>
+        <video class="hand-video-feed" data-hand-video autoplay muted playsinline></video>
       </section>
 
       <form class="command-bar" data-command-form>
@@ -77,12 +84,15 @@ export function createApp(rootElement, options = {}) {
     statusContent: rootElement.querySelector('[data-status-content]'),
     commandForm: rootElement.querySelector('[data-command-form]'),
     commandInput: rootElement.querySelector('#command-input'),
+    handToggleButton: rootElement.querySelector('[data-hand-toggle]'),
+    handVideo: rootElement.querySelector('[data-hand-video]'),
     resetButton: rootElement.querySelector('[data-reset-view]'),
   };
 
   let selectionIndex = createSelectionIndex(fallbackGraphData.links);
   let scene = null;
   let pointerFrameId = null;
+  const inputMerger = createInputMerger();
 
   const state = {
     graphData: fallbackGraphData,
@@ -103,7 +113,35 @@ export function createApp(rootElement, options = {}) {
     querySummary: 'The fallback nebula is active until the backend snapshot loads.',
     activeCypher: 'Not executed yet.',
     warnings: [],
+    handTracking: {
+      enabled: false,
+      status: 'idle',
+      gesture: 'none',
+      phase: 'IDLE',
+      confidence: 0,
+      handCount: 0,
+      message: 'Hand tracking is off. Mouse and keyboard are still fully active.',
+      lastAppliedGesture: 'none',
+    },
+    activeInput: 'mouse',
   };
+
+  const handTrackingController = handTrackingFactory({
+    videoElement: refs.handVideo,
+    onStatusChange(nextStatus) {
+      state.handTracking = {
+        ...state.handTracking,
+        ...nextStatus,
+        lastAppliedGesture:
+          nextStatus.gesture === 'none' ? 'none' : state.handTracking.lastAppliedGesture,
+      };
+      refs.handToggleButton.textContent = state.handTracking.enabled ? 'Disable Hands' : 'Enable Hands';
+      renderStatusPanel(refs, state);
+    },
+    onFrame(frame) {
+      applyHandFrame(frame);
+    },
+  });
 
   mountScene(state.graphData);
   renderNodePanel(refs, state);
@@ -111,6 +149,7 @@ export function createApp(rootElement, options = {}) {
   renderTooltip(refs, state);
 
   refs.graphRoot.addEventListener('pointermove', (event) => {
+    markInputActivity('mouse');
     state.pointer = {
       x: event.clientX,
       y: event.clientY,
@@ -128,6 +167,7 @@ export function createApp(rootElement, options = {}) {
 
   refs.commandForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    markInputActivity('text');
     const formData = new FormData(refs.commandForm);
     const command = String(formData.get('command') ?? '').trim();
 
@@ -184,7 +224,11 @@ export function createApp(rootElement, options = {}) {
   });
 
   refs.resetButton.addEventListener('click', () => {
+    markInputActivity('mouse');
     handleReset();
+  });
+  refs.handToggleButton.addEventListener('click', () => {
+    void handleHandToggle();
   });
 
   window.addEventListener('keydown', handleKeydown);
@@ -200,6 +244,7 @@ export function createApp(rootElement, options = {}) {
       }
 
       window.removeEventListener('keydown', handleKeydown);
+      handTrackingController.destroy();
       scene?.destroy?.();
     },
   };
@@ -243,10 +288,12 @@ export function createApp(rootElement, options = {}) {
           secondDegreeNodeIds: state.secondDegreeNeighborIds,
           secondDegreeLinkIds: state.secondDegreeLinkIds,
           hoveredConnectedNodeIds,
-          hoveredConnectedLinkIds,
+      hoveredConnectedLinkIds,
+          activeInput: state.activeInput,
         };
       },
-      onNodeHover(node) {
+      onNodeHover(node, source = 'mouse') {
+        markInputActivity(source);
         const nextNodeId = node?.id ?? null;
         const currentNodeId = state.hoveredNode?.id ?? null;
         if (nextNodeId === currentNodeId) {
@@ -259,7 +306,8 @@ export function createApp(rootElement, options = {}) {
         renderTooltip(refs, state);
         renderStatusPanel(refs, state);
       },
-      onNodeClick(node) {
+      onNodeClick(node, source = 'mouse') {
+        markInputActivity(source);
         syncSelection(node);
         state.lastAction = node
           ? `Selected ${node.name}. The side panel and graph focus are synced to the active node.`
@@ -272,7 +320,8 @@ export function createApp(rootElement, options = {}) {
           scene.focusNode(node);
         }
       },
-      onBackgroundClick() {
+      onBackgroundClick(source = 'mouse') {
+        markInputActivity(source);
         syncSelection(null);
         state.lastAction = 'Selection cleared. Camera remains in its current orbit.';
         renderNodePanel(refs, state);
@@ -314,11 +363,119 @@ export function createApp(rootElement, options = {}) {
     mountScene(response.graph);
   }
 
+  async function handleHandToggle() {
+    if (state.handTracking.enabled) {
+      handTrackingController.stop();
+      state.lastAction = 'Hand tracking disabled. Mouse and keyboard remain active.';
+      renderStatusPanel(refs, state);
+      return;
+    }
+
+    await handTrackingController.start();
+    renderStatusPanel(refs, state);
+  }
+
+  function markInputActivity(source) {
+    inputMerger.markActive(source);
+    state.activeInput = inputMerger.getActiveSource();
+  }
+
+  function applyHandFrame(frame) {
+    if (frame.gesture !== 'none' || frame.gesturePhase === 'RELEASING') {
+      markInputActivity('gesture');
+    }
+
+    state.handTracking = {
+      ...state.handTracking,
+      gesture: frame.gesture,
+      phase: frame.gesturePhase,
+      confidence: frame.confidence,
+      handCount: frame.handCount,
+    };
+
+    if (!scene) {
+      return;
+    }
+
+    if (frame.gesture !== state.handTracking.lastAppliedGesture && frame.gesture !== 'none') {
+      state.lastAction = `Gesture active: ${formatGestureLabel(frame.gesture)}.`;
+      state.handTracking.lastAppliedGesture = frame.gesture;
+      renderStatusPanel(refs, state);
+    }
+
+    if (frame.gesture === 'none') {
+      state.handTracking.lastAppliedGesture = 'none';
+      if (frame.gesturePhase === 'IDLE') {
+        scene.clearGesturePreview?.();
+      }
+      return;
+    }
+
+    switch (frame.gesture) {
+      case 'open_palm':
+      case 'fist': {
+        const strength = frame.gesture === 'fist' ? 1.35 : 0.95;
+        if (Math.hypot(frame.deltaNormalized.x, frame.deltaNormalized.y) > 0.003) {
+          scene.orbitBy?.(frame.deltaNormalized.x, frame.deltaNormalized.y, strength);
+        }
+        break;
+      }
+      case 'point': {
+        if (frame.pointerNormalized) {
+          scene.previewNodeAtNormalized?.(frame.pointerNormalized.x, frame.pointerNormalized.y);
+        }
+
+        if (frame.stable && frame.holdFrames === 6 && frame.pointerNormalized) {
+          const selectedNode = scene.selectNodeAtNormalized?.(
+            frame.pointerNormalized.x,
+            frame.pointerNormalized.y,
+          );
+          if (selectedNode) {
+            state.lastAction = `Gesture point selected ${selectedNode.name}.`;
+            renderStatusPanel(refs, state);
+          }
+        }
+        break;
+      }
+      case 'pinch': {
+        if (frame.stable && frame.holdFrames === 6) {
+          state.lastAction = state.selectedNode
+            ? `Gesture confirm on ${state.selectedNode.name}.`
+            : 'Gesture confirm detected. Select a node to apply it to.';
+          renderStatusPanel(refs, state);
+        }
+        break;
+      }
+      case 'zoom': {
+        if (frame.stable && Math.abs(frame.zoomDelta) > 0.0025) {
+          scene.zoomBy?.(frame.zoomDelta);
+        }
+        break;
+      }
+      case 'swipe': {
+        if (frame.holdFrames === 2) {
+          syncSelection(null);
+          scene.clearGesturePreview?.();
+          state.warnings = [];
+          state.lastAction = `Gesture swipe ${frame.swipeDirection ?? ''} dismissed the active focus.`
+            .trim();
+          renderNodePanel(refs, state);
+          renderStatusPanel(refs, state);
+          scene.refreshVisuals?.();
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
   function handleKeydown(event) {
     const isTextInput =
       event.target instanceof HTMLElement && event.target.closest('input, textarea');
 
     if (event.code === 'Space' && !isTextInput) {
+      markInputActivity('keyboard');
       event.preventDefault();
       state.paused = !state.paused;
       scene.setPaused(state.paused);
@@ -330,6 +487,7 @@ export function createApp(rootElement, options = {}) {
     }
 
     if (event.key === 'Escape') {
+      markInputActivity('keyboard');
       event.preventDefault();
       handleReset();
     }
@@ -401,6 +559,18 @@ function renderStatusPanel(refs, state) {
         <dt>Source</dt>
         <dd>${state.dataSourceLabel}</dd>
       </div>
+      <div>
+        <dt>Hands</dt>
+        <dd>${formatTrackingStatus(state.handTracking)}</dd>
+      </div>
+      <div>
+        <dt>Gesture</dt>
+        <dd>${formatGestureState(state.handTracking)}</dd>
+      </div>
+      <div>
+        <dt>Input</dt>
+        <dd>${formatInputSource(state.activeInput)}</dd>
+      </div>
     </dl>
     <section class="status-block">
       <span class="status-label">Last action</span>
@@ -413,6 +583,10 @@ function renderStatusPanel(refs, state) {
     <section class="status-block">
       <span class="status-label">Query summary</span>
       <p>${state.querySummary}</p>
+    </section>
+    <section class="status-block">
+      <span class="status-label">Hand Tracking</span>
+      <p>${state.handTracking.message}</p>
     </section>
     <section class="status-block">
       <span class="status-label">Cypher</span>
@@ -551,4 +725,33 @@ function escapeHtml(text) {
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+}
+
+function formatTrackingStatus(handTracking) {
+  if (!handTracking.enabled) {
+    return handTracking.status === 'starting' ? 'Starting' : 'Off';
+  }
+
+  return `${handTracking.handCount || 0} hand${handTracking.handCount === 1 ? '' : 's'} live`;
+}
+
+function formatGestureState(handTracking) {
+  if (!handTracking.enabled || handTracking.gesture === 'none') {
+    return handTracking.phase === 'RELEASING' ? 'Releasing' : 'Waiting';
+  }
+
+  return `${formatGestureLabel(handTracking.gesture)} ${handTracking.phase.toLowerCase()} ${Math.round(
+    handTracking.confidence * 100,
+  )}%`;
+}
+
+function formatGestureLabel(gesture) {
+  return gesture
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function formatInputSource(source) {
+  return source
+    .replace(/\b\w/g, (match) => match.toUpperCase());
 }
