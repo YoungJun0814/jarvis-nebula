@@ -4,6 +4,9 @@ import { createHandOverlayRenderer } from '../input/createHandOverlayRenderer.js
 import { createInputMerger } from '../input/createInputMerger.js';
 import { createNebulaScene } from '../render/createNebulaScene.js';
 import { GraphApiError, fetchGraphSnapshot, queryGraph } from '../services/graphApi.js';
+import { createVoiceController } from '../voice/createVoiceController.js';
+import { routeVoiceCommand } from '../voice/routeVoiceCommand.js';
+import { playRecognitionCue, speakFeedback } from '../voice/voiceFeedback.js';
 import {
   formatConnectionLabel,
   formatPercent,
@@ -19,6 +22,7 @@ export function createApp(rootElement, options = {}) {
 
   const graphFactory = options.graphFactory ?? createNebulaScene;
   const handTrackingFactory = options.handTrackingFactory ?? createHandTrackingController;
+  const voiceControllerFactory = options.voiceControllerFactory ?? createVoiceController;
   const fallbackGraphData = options.graphData ?? generateDemoGraph(500);
   const graphApi = options.graphApi ?? {
     fetchGraphSnapshot,
@@ -31,11 +35,11 @@ export function createApp(rootElement, options = {}) {
     <main class="nebula-app">
       <section class="nebula-stage">
         <div class="hud hud-brand">
-          <span class="eyebrow">Phase 5 Holographic Hands</span>
+          <span class="eyebrow">Phase 6 Voice Commands</span>
           <h1>Jarvis Nebula</h1>
           <p>
             A live 3D knowledge sphere with Neo4j-backed graph queries, mouse-first navigation,
-            node inspection, adaptive tracking, and a live holographic hand overlay.
+            node inspection, adaptive tracking, and voice command routing across the graph UI.
           </p>
         </div>
 
@@ -74,6 +78,7 @@ export function createApp(rootElement, options = {}) {
           autocomplete="off"
           placeholder="Try: show projects, show archive, show connected nodes, atlas launch"
         />
+        <button type="button" class="voice-button" data-voice-toggle>Mic</button>
         <button type="submit">Run Query</button>
       </form>
     </main>
@@ -87,6 +92,7 @@ export function createApp(rootElement, options = {}) {
     statusContent: rootElement.querySelector('[data-status-content]'),
     commandForm: rootElement.querySelector('[data-command-form]'),
     commandInput: rootElement.querySelector('#command-input'),
+    voiceToggleButton: rootElement.querySelector('[data-voice-toggle]'),
     handToggleButton: rootElement.querySelector('[data-hand-toggle]'),
     handVideo: rootElement.querySelector('[data-hand-video]'),
     resetButton: rootElement.querySelector('[data-reset-view]'),
@@ -135,6 +141,15 @@ export function createApp(rootElement, options = {}) {
       trackingFps: 0,
       gestureIdle: false,
     },
+    voice: {
+      enabled: true,
+      recording: false,
+      loading: false,
+      source: 'manual',
+      message: 'Voice commands are idle.',
+      lastTranscript: 'No voice command captured yet.',
+    },
+    graphHistory: [],
     activeInput: 'mouse',
   };
   const handOverlayRenderer = createHandOverlayRenderer({
@@ -161,6 +176,23 @@ export function createApp(rootElement, options = {}) {
     },
     onFrame(frame) {
       applyHandFrame(frame);
+    },
+  });
+  const voiceController = voiceControllerFactory({
+    onStatusChange(nextStatus) {
+      state.voice = {
+        ...state.voice,
+        ...nextStatus,
+      };
+      refs.voiceToggleButton.textContent = state.voice.loading
+        ? 'Wait'
+        : state.voice.recording
+          ? 'Stop'
+          : 'Mic';
+      renderStatusPanel(refs, state);
+    },
+    onTranscript(payload) {
+      void handleVoiceTranscript(payload);
     },
   });
 
@@ -196,52 +228,7 @@ export function createApp(rootElement, options = {}) {
       return;
     }
 
-    state.queuedCommand = command;
-
-    if (!remoteGraphEnabled || !graphApi?.queryGraph) {
-      state.lastAction =
-        'Queued a local command only. Remote graph querying is disabled for this app instance.';
-      renderStatusPanel(refs, state);
-      return;
-    }
-
-    state.isSyncing = true;
-    state.lastAction = `Running read-only graph query: ${command}`;
-    state.warnings = [];
-    renderStatusPanel(refs, state);
-
-    try {
-      const response = await graphApi.queryGraph({
-        command,
-        visible_node_ids: state.graphData.nodes.map((node) => node.id),
-        selected_node_ids: state.selectedNode ? [state.selectedNode.id] : [],
-      });
-
-      refs.commandInput.value = '';
-
-      if (response.graph.stats.nodeCount === 0) {
-        state.querySummary = response.query.summary;
-        state.activeCypher = response.query.cypher;
-        state.warnings = response.warnings.length
-          ? response.warnings
-          : ['No graph nodes matched the current query.'];
-        state.lastAction = 'The query returned no matches, so the previous graph view was kept.';
-        renderStatusPanel(refs, state);
-        return;
-      }
-
-      applyGraphResponse(response, {
-        action: `Applied query result for "${command}".`,
-      });
-    } catch (error) {
-      const message = formatGraphError(error);
-      state.warnings = [message];
-      state.lastAction = message;
-      renderStatusPanel(refs, state);
-    } finally {
-      state.isSyncing = false;
-      renderStatusPanel(refs, state);
-    }
+    await runGraphCommand(command, 'text');
   });
 
   refs.resetButton.addEventListener('click', () => {
@@ -251,8 +238,13 @@ export function createApp(rootElement, options = {}) {
   refs.handToggleButton.addEventListener('click', () => {
     void handleHandToggle();
   });
+  refs.voiceToggleButton.addEventListener('click', () => {
+    markInputActivity('voice');
+    voiceController.toggle('manual');
+  });
 
   window.addEventListener('keydown', handleKeydown);
+  window.addEventListener('keyup', handleKeyup);
 
   if (remoteGraphEnabled && graphApi?.fetchGraphSnapshot) {
     void syncLiveSnapshot();
@@ -265,7 +257,9 @@ export function createApp(rootElement, options = {}) {
       }
 
       window.removeEventListener('keydown', handleKeydown);
+      window.removeEventListener('keyup', handleKeyup);
       handTrackingController.destroy();
+      voiceController.destroy();
       handOverlayRenderer.destroy();
       scene?.destroy?.();
     },
@@ -363,6 +357,7 @@ export function createApp(rootElement, options = {}) {
       const response = await graphApi.fetchGraphSnapshot();
       applyGraphResponse(response, {
         action: 'Loaded the default graph snapshot from Neo4j.',
+        rememberPrevious: false,
       });
     } catch (error) {
       const message = formatGraphError(error);
@@ -376,13 +371,188 @@ export function createApp(rootElement, options = {}) {
     }
   }
 
-  function applyGraphResponse(response, { action }) {
+  async function runGraphCommand(command, source = 'text') {
+    state.queuedCommand = command;
+
+    if (!remoteGraphEnabled || !graphApi?.queryGraph) {
+      state.lastAction =
+        'Queued a local command only. Remote graph querying is disabled for this app instance.';
+      renderStatusPanel(refs, state);
+      return;
+    }
+
+    state.isSyncing = true;
+    state.lastAction = `Running read-only graph query from ${source}: ${command}`;
+    state.warnings = [];
+    renderStatusPanel(refs, state);
+
+    try {
+      const response = await graphApi.queryGraph({
+        command,
+        visible_node_ids: state.graphData.nodes.map((node) => node.id),
+        selected_node_ids: state.selectedNode ? [state.selectedNode.id] : [],
+      });
+
+      refs.commandInput.value = '';
+
+      if (response.graph.stats.nodeCount === 0) {
+        state.querySummary = response.query.summary;
+        state.activeCypher = response.query.cypher;
+        state.warnings = response.warnings.length
+          ? response.warnings
+          : ['No graph nodes matched the current query.'];
+        state.lastAction = 'The query returned no matches, so the previous graph view was kept.';
+        renderStatusPanel(refs, state);
+        return;
+      }
+
+      applyGraphResponse(response, {
+        action: `Applied ${source} query result for "${command}".`,
+        rememberPrevious: true,
+      });
+    } catch (error) {
+      const message = formatGraphError(error);
+      state.warnings = [message];
+      state.lastAction = message;
+      renderStatusPanel(refs, state);
+    } finally {
+      state.isSyncing = false;
+      renderStatusPanel(refs, state);
+    }
+  }
+
+  function applyGraphResponse(response, { action, rememberPrevious = false }) {
+    if (rememberPrevious) {
+      state.graphHistory.push({
+        graphData: state.graphData,
+        dataSourceLabel: state.dataSourceLabel,
+        querySummary: state.querySummary,
+        activeCypher: state.activeCypher,
+        warnings: [...state.warnings],
+      });
+    }
+
     state.dataSourceLabel = response.source === 'neo4j' ? 'Neo4j live graph' : 'Local fallback graph';
     state.querySummary = response.query.summary;
     state.activeCypher = response.query.cypher;
     state.warnings = response.warnings ?? [];
     state.lastAction = action;
     mountScene(response.graph);
+  }
+
+  async function handleVoiceTranscript(payload) {
+    const transcript = payload.transcript?.trim();
+    markInputActivity('voice');
+    state.voice.lastTranscript = transcript || 'No voice command captured yet.';
+    renderStatusPanel(refs, state);
+
+    if (!transcript) {
+      state.lastAction = 'Voice capture completed, but no speech was recognized.';
+      renderStatusPanel(refs, state);
+      return;
+    }
+
+    playRecognitionCue();
+    const route = routeVoiceCommand(transcript);
+
+    if (route.kind === 'ui') {
+      handleVoiceUiCommand(route.command);
+      speakFeedback(`Applied ${route.command.replaceAll('_', ' ')}.`);
+      return;
+    }
+
+    if (route.kind === 'agent') {
+      await queueAgentVoiceTask(route.command);
+      return;
+    }
+
+    await runGraphCommand(route.command, 'voice');
+  }
+
+  function handleVoiceUiCommand(command) {
+    switch (command) {
+      case 'reset':
+        handleReset();
+        break;
+      case 'zoom_in':
+        scene?.zoomBy?.(0.02);
+        state.lastAction = 'Voice command zoomed the camera closer.';
+        renderStatusPanel(refs, state);
+        break;
+      case 'zoom_out':
+        scene?.zoomBy?.(-0.02);
+        state.lastAction = 'Voice command moved the camera farther away.';
+        renderStatusPanel(refs, state);
+        break;
+      case 'undo':
+        restorePreviousGraph();
+        break;
+      case 'stop':
+        voiceController.stop();
+        scene?.clearGestureLaser?.();
+        scene?.clearGesturePreview?.();
+        state.lastAction = 'Stopped the current live input actions.';
+        renderStatusPanel(refs, state);
+        break;
+      case 'confirm':
+        state.lastAction = state.selectedNode
+          ? `Voice confirm acknowledged ${state.selectedNode.name}.`
+          : 'Voice confirm detected, but no node is selected.';
+        renderStatusPanel(refs, state);
+        break;
+      case 'reject':
+        syncSelection(null);
+        renderNodePanel(refs, state);
+        scene?.refreshVisuals?.();
+        state.lastAction = 'Voice reject cleared the current selection.';
+        renderStatusPanel(refs, state);
+        break;
+      default:
+        break;
+    }
+  }
+
+  async function queueAgentVoiceTask(command) {
+    state.lastAction = `Voice routed "${command}" to the Phase 8 agent placeholder.`;
+    renderStatusPanel(refs, state);
+    console.warn('[Jarvis Nebula][voice-agent-placeholder]', {
+      command,
+      selectedNodeId: state.selectedNode?.id ?? null,
+    });
+
+    try {
+      await fetch('/api/agent/command', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          command,
+          selected_node_ids: state.selectedNode ? [state.selectedNode.id] : [],
+        }),
+      });
+      speakFeedback('Agent placeholder queued.');
+    } catch {
+      state.warnings = ['The agent placeholder endpoint could not be reached.'];
+      renderStatusPanel(refs, state);
+    }
+  }
+
+  function restorePreviousGraph() {
+    const previousView = state.graphHistory.pop();
+    if (!previousView) {
+      state.lastAction = 'There is no previous graph view to restore.';
+      renderStatusPanel(refs, state);
+      return;
+    }
+
+    state.dataSourceLabel = previousView.dataSourceLabel;
+    state.querySummary = previousView.querySummary;
+    state.activeCypher = previousView.activeCypher;
+    state.warnings = previousView.warnings;
+    mountScene(previousView.graphData);
+    state.lastAction = 'Restored the previous graph view from local history.';
+    renderStatusPanel(refs, state);
   }
 
   async function handleHandToggle() {
@@ -403,6 +573,10 @@ export function createApp(rootElement, options = {}) {
   }
 
   function applyHandFrame(frame) {
+    if (state.voice.recording && state.voice.source === 'gesture' && frame.gesture !== 'pinch') {
+      voiceController.stop();
+    }
+
     if (frame.gesture !== 'none' || frame.gesturePhase === 'RELEASING') {
       markInputActivity('gesture');
     }
@@ -471,6 +645,14 @@ export function createApp(rootElement, options = {}) {
       }
       case 'pinch': {
         scene.clearGestureLaser?.();
+        if (hasLeftHand(frame.hands) && frame.holdFrames === 6 && !state.voice.recording) {
+          markInputActivity('voice');
+          voiceController.start('gesture');
+          state.lastAction = 'Left-hand pinch started push-to-talk voice capture.';
+          renderStatusPanel(refs, state);
+          break;
+        }
+
         if (frame.stable && frame.holdFrames === 6) {
           state.lastAction = state.selectedNode
             ? `Gesture confirm on ${state.selectedNode.name}.`
@@ -526,6 +708,19 @@ export function createApp(rootElement, options = {}) {
       markInputActivity('keyboard');
       event.preventDefault();
       handleReset();
+    }
+
+    if ((event.key === 'v' || event.key === 'V') && !event.repeat && !isTextInput) {
+      markInputActivity('voice');
+      event.preventDefault();
+      void voiceController.start('keyboard');
+    }
+  }
+
+  function handleKeyup(event) {
+    if ((event.key === 'v' || event.key === 'V') && state.voice.recording && state.voice.source === 'keyboard') {
+      event.preventDefault();
+      voiceController.stop();
     }
   }
 
@@ -589,11 +784,11 @@ function renderStatusPanel(refs, state) {
       </div>
       <div>
         <dt>Selection</dt>
-        <dd>${state.selectedNode ? state.selectedNode.name : 'None'}</dd>
+        <dd>${state.selectedNode ? escapeHtml(state.selectedNode.name) : 'None'}</dd>
       </div>
       <div>
         <dt>Source</dt>
-        <dd>${state.dataSourceLabel}</dd>
+        <dd>${escapeHtml(state.dataSourceLabel)}</dd>
       </div>
       <div>
         <dt>Hands</dt>
@@ -615,26 +810,38 @@ function renderStatusPanel(refs, state) {
         <dt>Sensitivity</dt>
         <dd>${formatPoseZone(state.handTracking)}</dd>
       </div>
+      <div>
+        <dt>Voice</dt>
+        <dd>${formatVoiceState(state.voice)}</dd>
+      </div>
     </dl>
     <section class="status-block">
       <span class="status-label">Last action</span>
-      <p>${state.lastAction}</p>
+      <p>${escapeHtml(state.lastAction)}</p>
     </section>
     <section class="status-block">
       <span class="status-label">Last query</span>
-      <p>${state.queuedCommand}</p>
+      <p>${escapeHtml(state.queuedCommand)}</p>
     </section>
     <section class="status-block">
       <span class="status-label">Query summary</span>
-      <p>${state.querySummary}</p>
+      <p>${escapeHtml(state.querySummary)}</p>
     </section>
     <section class="status-block">
       <span class="status-label">Hand Tracking</span>
-      <p>${state.handTracking.message}</p>
+      <p>${escapeHtml(state.handTracking.message)}</p>
     </section>
     <section class="status-block">
       <span class="status-label">Tracking Performance</span>
-      <p>${formatTrackingBudget(state.handTracking)}</p>
+      <p>${escapeHtml(formatTrackingBudget(state.handTracking))}</p>
+    </section>
+    <section class="status-block">
+      <span class="status-label">Voice</span>
+      <p>${escapeHtml(state.voice.message)}</p>
+    </section>
+    <section class="status-block">
+      <span class="status-label">Last Transcript</span>
+      <p>${escapeHtml(state.voice.lastTranscript)}</p>
     </section>
     <section class="status-block">
       <span class="status-label">Cypher</span>
@@ -683,13 +890,13 @@ function renderNodePanel(refs, state) {
   const node = state.selectedNode;
 
   refs.nodePanel.innerHTML = `
-    <span class="eyebrow">${formatTypeLabel(node.type)}</span>
-    <h2>${node.name}</h2>
-    <p>${node.summary}</p>
+    <span class="eyebrow">${escapeHtml(formatTypeLabel(node.type))}</span>
+    <h2>${escapeHtml(node.name)}</h2>
+    <p>${escapeHtml(node.summary)}</p>
     <dl class="node-metadata">
       <div>
         <dt>Cluster</dt>
-        <dd>${node.cluster}</dd>
+        <dd>${escapeHtml(node.cluster)}</dd>
       </div>
       <div>
         <dt>Connections</dt>
@@ -701,7 +908,7 @@ function renderNodePanel(refs, state) {
       </div>
       <div>
         <dt>Updated</dt>
-        <dd>${node.updatedAt}</dd>
+        <dd>${escapeHtml(node.updatedAt)}</dd>
       </div>
     </dl>
   `;
@@ -715,10 +922,10 @@ function renderTooltip(refs, state) {
 
   refs.tooltip.hidden = false;
   refs.tooltip.innerHTML = `
-    <strong>${state.hoveredNode.name}</strong>
-    <span>${formatTypeLabel(state.hoveredNode.type)} - ${formatConnectionLabel(
+    <strong>${escapeHtml(state.hoveredNode.name)}</strong>
+    <span>${escapeHtml(formatTypeLabel(state.hoveredNode.type))} - ${escapeHtml(formatConnectionLabel(
       state.hoveredNode.connections,
-    )}</span>
+    ))}</span>
   `;
   refs.tooltip.style.transform = `translate(${state.pointer.x + 18}px, ${state.pointer.y - 18}px)`;
 }
@@ -837,4 +1044,20 @@ function formatTrackingBudget(handTracking) {
   return handTracking.gestureIdle
     ? `${budget}. Gesture idle detected, so mouse and keyboard remain primary.`
     : `${budget}. Combined tracking is running within the live session.`;
+}
+
+function formatVoiceState(voice) {
+  if (voice.loading) {
+    return 'Transcribing';
+  }
+
+  if (voice.recording) {
+    return `Recording (${voice.source})`;
+  }
+
+  return 'Ready';
+}
+
+function hasLeftHand(hands = []) {
+  return hands.some((hand) => hand.handedness?.toLowerCase() === 'left');
 }

@@ -4,11 +4,14 @@ import { createApp } from './createApp.js';
 
 function createGraphFactoryStub() {
   return () => ({
+    clearGestureLaser() {},
+    clearGesturePreview() {},
     destroy() {},
     focusNode() {},
     refreshVisuals() {},
     resetCamera() {},
     setPaused() {},
+    zoomBy() {},
   });
 }
 
@@ -39,7 +42,7 @@ function createGraphFixture() {
 }
 
 describe('createApp', () => {
-  it('renders the phase 5 shell and queues commands locally', () => {
+  it('renders the phase 6 shell and queues commands locally', () => {
     const root = document.createElement('div');
 
     createApp(root, {
@@ -49,7 +52,8 @@ describe('createApp', () => {
 
     expect(root.querySelector('h1')?.textContent).toContain('Jarvis Nebula');
     expect(root.textContent).toContain('Node Inspector');
-    expect(root.textContent).toContain('Phase 5 Holographic Hands');
+    expect(root.textContent).toContain('Phase 6 Voice Commands');
+    expect(root.textContent).toContain('Mic');
 
     const input = root.querySelector('#command-input');
     const form = root.querySelector('[data-command-form]');

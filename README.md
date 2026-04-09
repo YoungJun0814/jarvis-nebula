@@ -4,7 +4,7 @@ Jarvis Nebula is an AI assistant with a 3D spatial interface. The product vision
 
 ## Current Status
 
-This repository now includes the full Phase 0 scaffold, the Phase 1 frontend shell, the Phase 2 graph query flow, the Phase 3 hand-tracking gesture layer, the Phase 4 adaptive pose sensitivity layer, and the Phase 5 holographic hand overlay.
+This repository now includes the full Phase 0 scaffold, the Phase 1 frontend shell, the Phase 2 graph query flow, the Phase 3 hand-tracking gesture layer, the Phase 4 adaptive pose sensitivity layer, the Phase 5 holographic hand overlay, and the Phase 6 voice command layer.
 
 - The main architecture and scope are defined in `PROJECT_PLAN.md`.
 - Frontend and backend manifests are in place.
@@ -15,7 +15,8 @@ This repository now includes the full Phase 0 scaffold, the Phase 1 frontend she
 - Phase 3 adds optional webcam-based hand gestures for orbit, hover/select, confirm, zoom, swipe dismiss, and gesture lifecycle tracking while keeping mouse and keyboard active.
 - Phase 4 adds pose-based distance sensitivity, gesture idle detection, and automatic fixed-sensitivity fallback when pose performance drops.
 - Phase 5 adds a transparent hand skeleton overlay, gesture labels, and a 3D pointing laser that locks onto hovered nodes.
-- The next step is Phase 6: add voice command capture, routing, and spoken responses.
+- Phase 6 adds microphone capture, push-to-talk shortcuts, faster-whisper transcription, command routing, recognition chimes, and spoken feedback.
+- The next step is Phase 7: polish input coexistence, help overlays, and performance tuning across all active modalities.
 
 ## Locked Decisions
 
@@ -126,8 +127,8 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d
 
 ## What Happens Next
 
-Phase 5 is now implemented locally. The next implementation step is:
+Phase 6 is now implemented locally. The next implementation step is:
 
-1. Start Phase 6 by adding voice capture, command routing, and spoken feedback on top of the current input stack.
-2. Keep gesture, mouse, keyboard, and text active together while voice becomes a fourth input lane.
-3. Preserve the Neo4j-backed graph query flow while multimodal command routing becomes richer.
+1. Start Phase 7 by tightening cross-input edge cases and adding explicit help and loading polish.
+2. Keep gesture, mouse, keyboard, text, and voice active together without one input starving the others.
+3. Preserve the Neo4j-backed graph query flow while multimodal orchestration becomes smoother.

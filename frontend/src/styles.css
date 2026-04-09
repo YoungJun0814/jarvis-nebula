@@ -279,7 +279,7 @@ kbd {
   bottom: 0;
   z-index: 3;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 16px;
   padding: 18px 24px 24px;
@@ -319,6 +319,17 @@ kbd {
   color: #03111b;
   font-weight: 700;
   cursor: pointer;
+}
+
+.voice-button {
+  background: rgba(10, 21, 37, 0.96) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid rgba(112, 214, 255, 0.18) !important;
+}
+
+.voice-button:hover {
+  filter: none !important;
+  border-color: rgba(112, 214, 255, 0.36) !important;
 }
 
 .command-bar button:hover {

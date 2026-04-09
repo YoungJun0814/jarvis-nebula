@@ -9,7 +9,7 @@ class FakeGraphService:
     def __init__(self) -> None:
         self.snapshot = GraphQueryResponse(
             status="ok",
-            phase="phase2_graph_queries",
+            phase="phase6_voice_commands",
             source="neo4j",
             graph=GraphPayload(
                 nodes=[
@@ -77,13 +77,13 @@ app.dependency_overrides[get_graph_service] = FakeGraphService
 client = TestClient(app)
 
 
-def test_health_endpoint_reports_phase2_ready() -> None:
+def test_health_endpoint_reports_phase6_ready() -> None:
     response = client.get("/api/health")
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    assert payload["phase"] == "phase2_graph_queries"
+    assert payload["phase"] == "phase6_voice_commands"
     assert "services" in payload
 
 
@@ -94,10 +94,10 @@ def test_public_config_is_browser_safe() -> None:
     payload = response.json()
     assert payload["language"] == "en"
     assert payload["wsPath"] == "/ws"
-    assert payload["phase"] == "phase2_graph_queries"
+    assert payload["phase"] == "phase6_voice_commands"
 
 
-def test_graph_snapshot_returns_phase2_payload() -> None:
+def test_graph_snapshot_returns_phase6_payload() -> None:
     response = client.get("/api/graph/snapshot")
 
     assert response.status_code == 200
