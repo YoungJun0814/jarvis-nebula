@@ -1,4 +1,4 @@
-"""Health endpoint for the backend scaffold."""
+"""Health endpoint for the backend."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ router = APIRouter(tags=["system"])
 
 @router.get("/health")
 def health() -> dict[str, object]:
-    """Return scaffold readiness without touching external services."""
+    """Return backend readiness without touching external services."""
     return {
         "app": settings.app_name,
         "status": "ok",
@@ -25,6 +25,6 @@ def health() -> dict[str, object]:
         },
         "runtimeTargets": {
             "node": ">=20 <25",
-            "python": "3.11.x",
+            "python": ">=3.11",
         },
     }

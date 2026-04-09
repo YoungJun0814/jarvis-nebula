@@ -9,6 +9,9 @@ app/api/health.py
 app/api/router.py
 app/core/__init__.py
 app/core/config.py
+app/graph/seed_graph.py
+app/models/graph.py
+app/services/neo4j_graph.py
 app/ws/__init__.py
 app/ws/handlers.py
 jarvis_nebula_backend.egg-info/PKG-INFO
@@ -18,3 +21,4 @@ jarvis_nebula_backend.egg-info/entry_points.txt
 jarvis_nebula_backend.egg-info/requires.txt
 jarvis_nebula_backend.egg-info/top_level.txt
 tests/test_api.py
+tests/test_graph_service.py

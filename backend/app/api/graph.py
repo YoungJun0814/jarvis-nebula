@@ -1,11 +1,17 @@
-"""Graph query API stubs."""
+"""Phase 2 graph APIs backed by Neo4j."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.core.config import settings
+from app.models.graph import GraphQueryResponse
+from app.services.neo4j_graph import (
+    GraphQueryBlocked,
+    GraphServiceUnavailable,
+    Neo4jGraphService,
+    get_graph_service,
+)
 
 
 class GraphQueryRequest(BaseModel):
@@ -17,12 +23,37 @@ class GraphQueryRequest(BaseModel):
 router = APIRouter(prefix="/graph", tags=["graph"])
 
 
-@router.post("/query", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def query_graph(request: GraphQueryRequest) -> dict[str, object]:
-    """Reserve the graph query path for Phase 2."""
-    return {
-        "status": "not_implemented",
-        "phase": settings.phase,
-        "message": "Graph querying starts in Phase 2.",
-        "received_command": request.command,
-    }
+@router.get("/snapshot", response_model=GraphQueryResponse)
+def graph_snapshot(service: Neo4jGraphService = Depends(get_graph_service)) -> GraphQueryResponse:
+    """Load the current graph snapshot from Neo4j."""
+    try:
+        return service.get_snapshot()
+    except GraphServiceUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post("/query", response_model=GraphQueryResponse)
+def query_graph(
+    request: GraphQueryRequest,
+    service: Neo4jGraphService = Depends(get_graph_service),
+) -> GraphQueryResponse:
+    """Execute a read-only graph query against Neo4j."""
+    try:
+        return service.run_command(
+            request.command,
+            visible_node_ids=request.visible_node_ids,
+            selected_node_ids=request.selected_node_ids,
+        )
+    except GraphQueryBlocked as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except GraphServiceUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc

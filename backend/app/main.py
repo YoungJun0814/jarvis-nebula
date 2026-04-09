@@ -13,7 +13,7 @@ from app.ws.handlers import router as ws_router
 app = FastAPI(
     title=settings.app_name,
     version=settings.api_version,
-    summary="Phase 0 scaffold for the Jarvis Nebula backend.",
+    summary="Phase 2 graph query backend for Jarvis Nebula.",
 )
 
 app.add_middleware(
@@ -34,7 +34,7 @@ def root() -> dict[str, object]:
     return {
         "app": settings.app_name,
         "phase": settings.phase,
-        "message": "Jarvis Nebula backend scaffold is ready.",
+        "message": "Jarvis Nebula backend graph service is ready.",
     }
 
 

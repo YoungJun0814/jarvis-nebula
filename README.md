@@ -4,14 +4,15 @@ Jarvis Nebula is an AI assistant with a 3D spatial interface. The product vision
 
 ## Current Status
 
-This repository now includes the full Phase 0 scaffold and a working Phase 1 frontend.
+This repository now includes the full Phase 0 scaffold, the Phase 1 frontend shell, and a live Phase 2 graph query flow.
 
 - The main architecture and scope are defined in `PROJECT_PLAN.md`.
 - Frontend and backend manifests are in place.
 - Neo4j local infrastructure config is in place.
 - Lint, format, unit test, and end-to-end test configs are in place.
-- Phase 1 now renders a static 3D nebula with mouse navigation, node inspection, and a command bar.
-- The next step is Phase 2: connect the frontend to Neo4j-backed graph data and query flows.
+- Phase 1 renders the 3D nebula with mouse navigation, node inspection, and a command bar.
+- Phase 2 loads graph data from Neo4j, seeds the local database on first run, and routes read-only text queries through the backend.
+- The next step is Phase 3: add webcam-based hand tracking and gesture controls on top of the existing mouse interaction model.
 
 ## Locked Decisions
 
@@ -36,7 +37,7 @@ The authoritative implementation baseline lives in Section 11 of `PROJECT_PLAN.m
 
 - Node.js: `>=20 <25`
 - npm: `>=10`
-- Python: `3.11.x`
+- Python: `>=3.11`
 - Docker Desktop with Compose v2
 
 Note: the current local machine may have a newer Python installed, but the backend target is still Python 3.11 because MediaPipe and related native dependencies are planned around that baseline.
@@ -53,7 +54,7 @@ Important rules:
 
 ## Local Setup
 
-### Fastest Way To Preview Phase 1
+### Fastest Way To Preview The Current UI
 
 From the project root:
 
@@ -61,11 +62,11 @@ From the project root:
 npm run dev
 ```
 
-This starts the frontend dev server and opens the browser automatically.
+This starts the frontend dev server and opens the browser automatically. If the backend is not running yet, the app stays usable with the local fallback demo graph and shows a warning in the status panel.
 
 ### Full Local Launch
 
-If you want the frontend plus Neo4j and the backend scaffold together:
+If you want the frontend plus Neo4j and the backend graph service together:
 
 ```powershell
 npm run dev:full
@@ -122,8 +123,8 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d
 
 ## What Happens Next
 
-Phase 1 is now implemented locally. The next implementation step is:
+Phase 2 is now implemented locally. The next implementation step is:
 
-1. Start Phase 2 by replacing the demo graph with Neo4j-backed data loading.
-2. Route text commands through the backend graph query contract.
-3. Keep the current frontend shell and backend health/WebSocket stubs as the baseline while graph integration lands.
+1. Start Phase 3 by adding MediaPipe Hands tracking without regressing mouse and keyboard behavior.
+2. Route gesture events into the existing graph focus, select, and zoom controls.
+3. Keep the current Neo4j-backed graph flow stable while multimodal inputs are layered in.
