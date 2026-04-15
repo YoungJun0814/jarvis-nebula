@@ -1,4 +1,15 @@
 const TYPE_LABELS = {
+  folder: 'Folder',
+  javascript: 'JavaScript',
+  typescript: 'TypeScript',
+  markdown: 'Markdown',
+  json: 'JSON',
+  css: 'CSS',
+  html: 'HTML',
+  python: 'Python',
+  image: 'Image',
+  config: 'Config',
+  // legacy demo categories, kept for back-compat with any snapshot data
   person: 'Person',
   project: 'Project',
   concept: 'Concept',

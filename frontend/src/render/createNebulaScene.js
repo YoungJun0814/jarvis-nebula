@@ -227,6 +227,60 @@ export function createNebulaScene({
         75,
       );
     },
+    zoomForDrill(node, { duration = 720 } = {}) {
+      if (!node || typeof node.x !== 'number') {
+        return Promise.resolve();
+      }
+
+      const wasPaused = paused;
+      if (wasPaused) {
+        graph.resumeAnimation();
+      }
+
+      const target = { x: node.x, y: node.y, z: node.z };
+      const toward = new THREE.Vector3(node.x, node.y, node.z).normalize();
+      if (toward.lengthSq() === 0) {
+        toward.set(0, 0, 1);
+      }
+      const closeDistance = 42;
+      const cameraPos = {
+        x: node.x + toward.x * closeDistance,
+        y: node.y + toward.y * closeDistance,
+        z: node.z + toward.z * closeDistance,
+      };
+
+      controls.target.set(target.x, target.y, target.z);
+      controls.update();
+      graph.cameraPosition(cameraPos, target, duration);
+
+      return new Promise((resolve) => {
+        window.setTimeout(() => {
+          if (wasPaused) {
+            graph.pauseAnimation();
+          }
+          resolve();
+        }, duration + 40);
+      });
+    },
+    zoomForEmerge({ duration = 680 } = {}) {
+      const wasPaused = paused;
+      if (wasPaused) {
+        graph.resumeAnimation();
+      }
+
+      controls.target.set(ORIGIN.x, ORIGIN.y, ORIGIN.z);
+      controls.update();
+      graph.cameraPosition(INITIAL_CAMERA, ORIGIN, duration);
+
+      return new Promise((resolve) => {
+        window.setTimeout(() => {
+          if (wasPaused) {
+            graph.pauseAnimation();
+          }
+          resolve();
+        }, duration + 40);
+      });
+    },
     previewNodeAtNormalized(normalizedX, normalizedY) {
       const node = pickNodeAtNormalized(normalizedX, normalizedY);
       onNodeHover(node, 'gesture');
@@ -253,6 +307,19 @@ export function createNebulaScene({
     },
     destroy() {
       window.removeEventListener('resize', handleResize);
+      try {
+        graph.pauseAnimation();
+      } catch {
+        /* no-op */
+      }
+      try {
+        graph._destructor?.();
+      } catch {
+        /* no-op */
+      }
+      while (container.firstChild) {
+        container.removeChild(container.firstChild);
+      }
     },
   };
 

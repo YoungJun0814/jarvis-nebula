@@ -2,7 +2,9 @@ import { generateDemoGraph } from '../graph/generateDemoGraph.js';
 import { createHandTrackingController } from '../input/createHandTrackingController.js';
 import { createHandOverlayRenderer } from '../input/createHandOverlayRenderer.js';
 import { createInputMerger } from '../input/createInputMerger.js';
-import { createNebulaScene } from '../render/createNebulaScene.js';
+import { createLayerStack } from '../navigation/createLayerStack.js';
+import { createLayerStore } from '../navigation/createLayerStore.js';
+import { createLayerStage } from '../render/createLayerStage.js';
 import { GraphApiError, fetchGraphSnapshot, queryGraph } from '../services/graphApi.js';
 import { createVoiceController } from '../voice/createVoiceController.js';
 import { routeVoiceCommand } from '../voice/routeVoiceCommand.js';
@@ -14,16 +16,17 @@ import {
 } from '../ui/formatters.js';
 
 const EMPTY_SET = new Set();
+const LAYER_TRANSITION_MS = 700;
 
 export function createApp(rootElement, options = {}) {
   if (!rootElement) {
     throw new Error('Expected #app root element to exist.');
   }
 
-  const graphFactory = options.graphFactory ?? createNebulaScene;
+  const stageFactory = options.stageFactory ?? createLayerStage;
   const handTrackingFactory = options.handTrackingFactory ?? createHandTrackingController;
   const voiceControllerFactory = options.voiceControllerFactory ?? createVoiceController;
-  const fallbackGraphData = options.graphData ?? generateDemoGraph(500);
+  const fallbackGraphData = options.graphData ?? generateDemoGraph();
   const graphApi = options.graphApi ?? {
     fetchGraphSnapshot,
     queryGraph,
@@ -34,16 +37,18 @@ export function createApp(rootElement, options = {}) {
   rootElement.innerHTML = `
     <main class="nebula-app">
       <section class="nebula-stage">
-        <div class="hud hud-brand">
-          <span class="eyebrow">Phase 7 Interaction Polish</span>
+        <div class="hud hud-brand glass-tier glass-tier--1">
+          <span class="eyebrow">Phase 9 Liquid Glass</span>
           <h1>Jarvis Nebula</h1>
           <p>
-            A live 3D knowledge sphere with Neo4j-backed graph queries, mouse-first navigation,
-            node inspection, adaptive tracking, voice command routing, and polished multimodal help.
+            A layered 3D knowledge sphere. Double-click or pinch a node to dive into its sub-graph,
+            then surface back through the breadcrumb. All inputs stay live while you navigate layers.
           </p>
         </div>
 
-        <section class="hud status-panel" data-status-panel>
+        <nav class="hud breadcrumb-bar glass-tier glass-tier--2" data-breadcrumb aria-label="Layer breadcrumb"></nav>
+
+        <section class="hud status-panel glass-tier glass-tier--2" data-status-panel>
           <div class="panel-header">
             <span class="eyebrow">Graph Status</span>
             <div class="panel-actions">
@@ -54,49 +59,55 @@ export function createApp(rootElement, options = {}) {
           <div data-status-content></div>
         </section>
 
-        <aside class="hud node-panel" data-node-panel></aside>
+        <aside class="hud node-panel glass-tier glass-tier--2" data-node-panel></aside>
         <aside class="help-overlay" data-help-overlay hidden>
-          <div class="help-card">
+          <div class="help-card glass-tier glass-tier--3">
             <div class="panel-header">
-              <span class="eyebrow">Phase 7 Help</span>
+              <span class="eyebrow">Shortcut Guide</span>
               <button type="button" class="ghost-button" data-help-close>Close</button>
             </div>
-            <h2>Shortcut Guide</h2>
-            <p>Mouse, text, gesture, and voice can all stay live at the same time.</p>
+            <h2>Inputs &amp; Layers</h2>
+            <p>Mouse, text, gesture, and voice stay live across every layer.</p>
             <ul class="help-list">
-              <li><kbd>Drag</kbd> orbit the sphere</li>
+              <li><kbd>Drag</kbd> orbit the current layer</li>
               <li><kbd>Wheel</kbd> zoom the camera</li>
+              <li><kbd>Double-click</kbd> a node to dive into its sub-layer</li>
+              <li><kbd>Enter</kbd> dive into the selected node</li>
+              <li><kbd>Backspace</kbd> surface up one layer</li>
               <li><kbd>Space</kbd> freeze or resume layout</li>
-              <li><kbd>Esc</kbd> reset the current view</li>
+              <li><kbd>Esc</kbd> clear selection and reset view</li>
               <li><kbd>V</kbd> hold to talk</li>
               <li><kbd>?</kbd> toggle this help overlay</li>
-              <li>Point + voice targets the hovered node when one is active</li>
+              <li>Voice: &ldquo;dive in&rdquo;, &ldquo;go back&rdquo;, &ldquo;go to root&rdquo;</li>
             </ul>
           </div>
         </aside>
 
-        <div class="hud shortcut-strip">
-          <span><kbd>Drag</kbd> orbit</span>
-          <span><kbd>Wheel</kbd> zoom</span>
+        <div class="hud shortcut-strip glass-tier glass-tier--2">
+          <span><kbd>Dbl-click</kbd> dive</span>
+          <span><kbd>Bksp</kbd> surface</span>
           <span><kbd>Space</kbd> freeze</span>
           <span><kbd>Esc</kbd> reset</span>
           <span><kbd>?</kbd> help</span>
         </div>
 
         <div class="nebula-canvas" data-graph-root></div>
-        <canvas class="hand-overlay-canvas" data-hand-overlay></canvas>
         <div class="nebula-tooltip" data-tooltip hidden></div>
-        <video class="hand-video-feed" data-hand-video autoplay muted playsinline></video>
+        <aside class="hand-pip" data-hand-pip hidden aria-hidden="true">
+          <video class="hand-pip__video" data-hand-video autoplay muted playsinline></video>
+          <canvas class="hand-pip__overlay" data-hand-overlay></canvas>
+          <span class="hand-pip__label">Hand cam</span>
+        </aside>
       </section>
 
-      <form class="command-bar" data-command-form>
+      <form class="command-bar glass-tier glass-tier--2" data-command-form>
         <label class="command-label" for="command-input">Graph Command</label>
         <input
           id="command-input"
           name="command"
           type="text"
           autocomplete="off"
-          placeholder="Try: show projects, show archive, show connected nodes, atlas launch"
+          placeholder="Try: show projects, dive in, go back, show archive"
         />
         <button type="button" class="voice-button" data-voice-toggle>Mic</button>
         <button type="submit" data-command-submit>Run Query</button>
@@ -107,7 +118,9 @@ export function createApp(rootElement, options = {}) {
   const refs = {
     graphRoot: rootElement.querySelector('[data-graph-root]'),
     tooltip: rootElement.querySelector('[data-tooltip]'),
+    breadcrumb: rootElement.querySelector('[data-breadcrumb]'),
     handOverlay: rootElement.querySelector('[data-hand-overlay]'),
+    handPip: rootElement.querySelector('[data-hand-pip]'),
     helpOverlay: rootElement.querySelector('[data-help-overlay]'),
     helpCloseButton: rootElement.querySelector('[data-help-close]'),
     helpCard: rootElement.querySelector('.help-card'),
@@ -122,13 +135,38 @@ export function createApp(rootElement, options = {}) {
     resetButton: rootElement.querySelector('[data-reset-view]'),
   };
 
-  let selectionIndex = createSelectionIndex(fallbackGraphData.links);
-  let scene = null;
+  let layerStore = createLayerStore(fallbackGraphData);
+  let layerStack = createLayerStack(layerStore);
+  let currentLayerView = layerStore.getLayer(null);
+  let selectionIndex = createSelectionIndex(currentLayerView.links);
+  let layerTransitionPromise = Promise.resolve();
+  let stage = null;
+  const scene = createSceneShim(
+    () => stage?.currentCard() ?? null,
+    () => stage,
+    {
+      getGraphRoot: () => refs.graphRoot,
+      onHoverNodeFromGesture(id) {
+        const node = id ? layerStore.getNode(id) : null;
+        handleLayerNodeHover(node, 'gesture');
+      },
+      onSelectNodeFromGesture(id) {
+        const node = id ? layerStore.getNode(id) : null;
+        if (!node) return null;
+        handleLayerNodeClick(node, 'gesture');
+        return node;
+      },
+    },
+  );
   let pointerFrameId = null;
   const inputMerger = createInputMerger();
 
   const state = {
     graphData: fallbackGraphData,
+    layerView: currentLayerView,
+    layerBreadcrumb: layerStack.getBreadcrumb(),
+    layerDepth: layerStack.getDepth(),
+    layerTransitioning: false,
     hoveredNode: null,
     selectedNode: null,
     selectedNeighborIds: EMPTY_SET,
@@ -193,6 +231,10 @@ export function createApp(rootElement, options = {}) {
       refs.handToggleButton.textContent = state.handTracking.enabled
         ? 'Disable Tracking'
         : 'Enable Tracking';
+      if (refs.handPip) {
+        refs.handPip.hidden = !state.handTracking.enabled;
+        refs.handPip.setAttribute('aria-hidden', String(!state.handTracking.enabled));
+      }
       if (!state.handTracking.enabled) {
         handOverlayRenderer.clear();
         scene?.clearGestureLaser?.();
@@ -221,10 +263,11 @@ export function createApp(rootElement, options = {}) {
     },
   });
 
-  mountScene(state.graphData);
+  resetLayers(state.graphData);
   renderNodePanel(refs, state);
   renderStatusPanel(refs, state);
   renderTooltip(refs, state);
+  renderBreadcrumb(refs, state, { drillIn, drillOut, popToLayer });
 
   refs.graphRoot.addEventListener('pointermove', (event) => {
     markInputActivity('mouse');
@@ -299,95 +342,207 @@ export function createApp(rootElement, options = {}) {
       handTrackingController.destroy();
       voiceController.destroy();
       handOverlayRenderer.destroy();
-      scene?.destroy?.();
+      stage?.destroy();
+      stage = null;
     },
   };
 
-  function mountScene(nextGraphData) {
-    state.graphData = nextGraphData;
-    selectionIndex = createSelectionIndex(nextGraphData.links);
+  function buildSelectionState() {
+    let hoveredConnectedNodeIds = EMPTY_SET;
+    let hoveredConnectedLinkIds = EMPTY_SET;
 
-    const nextSelectedNode = state.selectedNode
-      ? nextGraphData.nodes.find((node) => node.id === state.selectedNode.id) ?? null
-      : null;
-    syncSelection(nextSelectedNode);
-    state.hoveredNode = null;
+    if (state.hoveredNode) {
+      hoveredConnectedNodeIds =
+        selectionIndex.neighborIdsByNode.get(state.hoveredNode.id) ?? EMPTY_SET;
+      hoveredConnectedLinkIds =
+        selectionIndex.linkIdsByNode.get(state.hoveredNode.id) ?? EMPTY_SET;
+    }
 
-    scene?.destroy?.();
-    refs.graphRoot.replaceChildren();
-
-    const sceneMount = document.createElement('div');
-    sceneMount.className = 'nebula-graph-mount';
-    refs.graphRoot.append(sceneMount);
-
-    scene = graphFactory({
-      container: sceneMount,
-      graphData: nextGraphData,
-      getSelectionState: () => {
-        let hoveredConnectedNodeIds = EMPTY_SET;
-        let hoveredConnectedLinkIds = EMPTY_SET;
-
-        if (state.hoveredNode) {
-          hoveredConnectedNodeIds =
-            selectionIndex.neighborIdsByNode.get(state.hoveredNode.id) ?? EMPTY_SET;
-          hoveredConnectedLinkIds =
-            selectionIndex.linkIdsByNode.get(state.hoveredNode.id) ?? EMPTY_SET;
-        }
-
-        return {
-          selectedNodeId: state.selectedNode?.id ?? null,
-          hoveredNodeId: state.hoveredNode?.id ?? null,
-          connectedNodeIds: state.selectedNeighborIds,
-          connectedLinkIds: state.selectedLinkIds,
-          secondDegreeNodeIds: state.secondDegreeNeighborIds,
-          secondDegreeLinkIds: state.secondDegreeLinkIds,
-          hoveredConnectedNodeIds,
+    return {
+      selectedNodeId: state.selectedNode?.id ?? null,
+      hoveredNodeId: state.hoveredNode?.id ?? null,
+      connectedNodeIds: state.selectedNeighborIds,
+      connectedLinkIds: state.selectedLinkIds,
+      secondDegreeNodeIds: state.secondDegreeNeighborIds,
+      secondDegreeLinkIds: state.secondDegreeLinkIds,
+      hoveredConnectedNodeIds,
       hoveredConnectedLinkIds,
-          activeInput: state.activeInput,
-        };
-      },
-      onNodeHover(node, source = 'mouse') {
-        markInputActivity(source);
-        const nextNodeId = node?.id ?? null;
-        const currentNodeId = state.hoveredNode?.id ?? null;
-        if (nextNodeId === currentNodeId) {
-          return;
-        }
+      activeInput: state.activeInput,
+    };
+  }
 
-        state.hoveredNode = node ?? null;
-        refs.graphRoot.style.cursor = node ? 'pointer' : 'grab';
-        scene.refreshVisuals();
-        renderTooltip(refs, state);
-        renderStatusPanel(refs, state);
-      },
-      onNodeClick(node, source = 'mouse') {
-        markInputActivity(source);
-        syncSelection(node);
-        state.lastAction = node
-          ? `Selected ${node.name}. The side panel and graph focus are synced to the active node.`
-          : 'Selection cleared.';
-        renderNodePanel(refs, state);
-        renderStatusPanel(refs, state);
-        scene.refreshVisuals();
+  function handleLayerNodeHover(node, source = 'mouse') {
+    markInputActivity(source);
+    const nextNodeId = node?.id ?? null;
+    const currentNodeId = state.hoveredNode?.id ?? null;
+    if (nextNodeId === currentNodeId) {
+      return;
+    }
 
-        if (node) {
-          scene.focusNode(node);
-        }
-      },
-      onBackgroundClick(source = 'mouse') {
-        markInputActivity(source);
-        syncSelection(null);
-        state.lastAction = 'Selection cleared. Camera remains in its current orbit.';
-        renderNodePanel(refs, state);
-        renderStatusPanel(refs, state);
-        scene.refreshVisuals();
-      },
+    state.hoveredNode = node ?? null;
+    refs.graphRoot.style.cursor = node ? 'pointer' : 'grab';
+    scene?.refreshVisuals();
+    renderTooltip(refs, state);
+    renderStatusPanel(refs, state);
+  }
+
+  function handleLayerNodeClick(node, source = 'mouse', meta = {}) {
+    markInputActivity(source);
+    const isDoubleClick = Boolean(meta.double);
+
+    syncSelection(node);
+    scene?.refreshVisuals();
+
+    if (isDoubleClick && node && layerStore.hasChildren(node.id)) {
+      void drillIn(node.id);
+      renderNodePanel(refs, state, { drillIn });
+      renderStatusPanel(refs, state);
+      return;
+    }
+
+    state.lastAction = node
+      ? layerStore.hasChildren(node.id)
+        ? `Selected ${node.name}. Double-click or press Enter to dive in.`
+        : `Selected ${node.name}. This is a leaf node.`
+      : 'Selection cleared.';
+    renderNodePanel(refs, state, { drillIn });
+    renderStatusPanel(refs, state);
+
+    if (node) {
+      scene?.focusNode(node);
+    }
+  }
+
+  function handleLayerBackgroundClick(source = 'mouse') {
+    markInputActivity(source);
+    syncSelection(null);
+    state.lastAction = 'Selection cleared. Camera remains in its current orbit.';
+    renderNodePanel(refs, state, { drillIn });
+    renderStatusPanel(refs, state);
+    scene?.refreshVisuals();
+  }
+
+  function resetLayers(nextGraphData) {
+    state.graphData = nextGraphData;
+    state.hoveredNode = null;
+    state.selectedNode = null;
+
+    if (stage) {
+      stage.destroy();
+      stage = null;
+    }
+
+    layerStore = createLayerStore(nextGraphData);
+    layerStack = createLayerStack(layerStore);
+    currentLayerView = layerStore.getLayer(null);
+    selectionIndex = createSelectionIndex(currentLayerView.links);
+
+    stage = stageFactory({
+      container: refs.graphRoot,
+      getSelectionState: buildSelectionState,
+      onNodeHover: handleLayerNodeHover,
+      onNodeClick: handleLayerNodeClick,
+      onBackgroundClick: handleLayerBackgroundClick,
+      hasChildren: (id) => layerStore.hasChildren(id),
     });
+    stage.reset(currentLayerView);
+
+    state.layerView = currentLayerView;
+    state.graphData = currentLayerView;
+    state.layerBreadcrumb = layerStack.getBreadcrumb();
+    state.layerDepth = layerStack.getDepth();
+    syncSelection(null);
 
     refs.graphRoot.style.cursor = 'grab';
     renderTooltip(refs, state);
-    renderNodePanel(refs, state);
+    renderNodePanel(refs, state, { drillIn });
+    renderBreadcrumb(refs, state, { drillIn, drillOut, popToLayer });
     renderStatusPanel(refs, state);
+  }
+
+  async function drillIn(nodeId) {
+    if (!nodeId || state.layerTransitioning) {
+      return;
+    }
+    const node = layerStore.getNode(nodeId);
+    if (!node) {
+      return;
+    }
+    if (!layerStore.hasChildren(node.id)) {
+      state.lastAction = `${node.name} has no sub-layer to dive into.`;
+      renderStatusPanel(refs, state);
+      return;
+    }
+    if (!layerStack.push(node.id)) {
+      return;
+    }
+
+    state.layerTransitioning = true;
+    renderStatusPanel(refs, state);
+
+    const nextLayerView = layerStore.getLayer(node.id);
+    layerTransitionPromise = stage.pushLayer(nextLayerView, { duration: LAYER_TRANSITION_MS });
+    await layerTransitionPromise.catch(() => {});
+
+    state.layerView = nextLayerView;
+    state.graphData = nextLayerView;
+    selectionIndex = createSelectionIndex(nextLayerView.links);
+    syncSelection(null);
+
+    state.layerBreadcrumb = layerStack.getBreadcrumb();
+    state.layerDepth = layerStack.getDepth();
+    state.lastAction = `Dove into ${node.name}. Showing ${nextLayerView.stats.nodeCount} nested nodes.`;
+    state.layerTransitioning = false;
+
+    renderBreadcrumb(refs, state, { drillIn, drillOut, popToLayer });
+    renderNodePanel(refs, state, { drillIn });
+    renderStatusPanel(refs, state);
+  }
+
+  async function drillOut() {
+    if (state.layerTransitioning) {
+      return;
+    }
+    if (!stage || stage.getLayerCount() <= 1) {
+      state.lastAction = 'Already at the root layer.';
+      renderStatusPanel(refs, state);
+      return;
+    }
+    state.layerTransitioning = true;
+    renderStatusPanel(refs, state);
+
+    await stage.popLayer({ duration: LAYER_TRANSITION_MS - 60 });
+    layerStack.pop();
+
+    const parentId = layerStack.getCurrentParentId();
+    const parentLayerView = layerStore.getLayer(parentId);
+    state.layerView = parentLayerView;
+    state.graphData = parentLayerView;
+    selectionIndex = createSelectionIndex(parentLayerView.links);
+    syncSelection(null);
+
+    state.layerBreadcrumb = layerStack.getBreadcrumb();
+    state.layerDepth = layerStack.getDepth();
+    state.lastAction = 'Surfaced one layer. The parent nebula is sharp again.';
+    state.layerTransitioning = false;
+
+    renderBreadcrumb(refs, state, { drillIn, drillOut, popToLayer });
+    renderNodePanel(refs, state, { drillIn });
+    renderStatusPanel(refs, state);
+  }
+
+  async function popToLayer(targetParentId) {
+    if (state.layerTransitioning) {
+      return;
+    }
+    const normalized = targetParentId ?? null;
+    if (layerStack.getCurrentParentId() === normalized) {
+      return;
+    }
+    while (stage && stage.getLayerCount() > 1 && layerStack.getCurrentParentId() !== normalized) {
+      // eslint-disable-next-line no-await-in-loop
+      await drillOut();
+    }
   }
 
   async function syncLiveSnapshot() {
@@ -481,7 +636,7 @@ export function createApp(rootElement, options = {}) {
     state.activeCypher = response.query.cypher;
     state.warnings = response.warnings ?? [];
     state.lastAction = action;
-    mountScene(response.graph);
+    resetLayers(response.graph);
   }
 
   async function handleVoiceTranscript(payload) {
@@ -515,6 +670,22 @@ export function createApp(rootElement, options = {}) {
 
   function handleVoiceUiCommand(command) {
     switch (command) {
+      case 'dive_in':
+        if (state.selectedNode) {
+          void drillIn(state.selectedNode.id);
+        } else if (state.hoveredNode) {
+          void drillIn(state.hoveredNode.id);
+        } else {
+          state.lastAction = 'Voice dive-in needs a selected or hovered node first.';
+          renderStatusPanel(refs, state);
+        }
+        break;
+      case 'surface':
+        void drillOut();
+        break;
+      case 'surface_all':
+        void popToLayer(null);
+        break;
       case 'reset':
         handleReset();
         break;
@@ -546,7 +717,7 @@ export function createApp(rootElement, options = {}) {
         break;
       case 'reject':
         syncSelection(null);
-        renderNodePanel(refs, state);
+        renderNodePanel(refs, state, { drillIn });
         scene?.refreshVisuals?.();
         state.lastAction = 'Voice reject cleared the current selection.';
         renderStatusPanel(refs, state);
@@ -600,7 +771,7 @@ export function createApp(rootElement, options = {}) {
     state.querySummary = previousView.querySummary;
     state.activeCypher = previousView.activeCypher;
     state.warnings = previousView.warnings;
-    mountScene(previousView.graphData);
+    resetLayers(previousView.graphData);
     state.lastAction = 'Restored the previous graph view from local history.';
     renderStatusPanel(refs, state);
   }
@@ -662,39 +833,37 @@ export function createApp(rootElement, options = {}) {
     }
 
     switch (frame.gesture) {
-      case 'open_palm':
-      case 'fist': {
+      case 'open_palm': {
+        // Open palm = free-move the stage camera. Mirror the x delta so moving
+        // the hand right orbits the stack right.
         const sensitivity = frame.sensitivityMultiplier ?? 1;
-        const strength = (frame.gesture === 'fist' ? 1.35 : 0.95) * sensitivity;
+        const strength = 0.9 * sensitivity;
         if (Math.hypot(frame.deltaNormalized.x, frame.deltaNormalized.y) > 0.003) {
-          scene.orbitBy?.(frame.deltaNormalized.x, frame.deltaNormalized.y, strength);
+          scene.orbitBy?.(-frame.deltaNormalized.x, frame.deltaNormalized.y, strength);
+        }
+        break;
+      }
+      case 'fist': {
+        // Fist = surface one layer up. Fire on the first stable frame so
+        // clenching briefly pops a layer without repeating.
+        if (frame.stable && frame.holdFrames === 4 && !state.layerTransitioning) {
+          void drillOut();
+          state.lastAction = 'Gesture fist surfaced one layer.';
+          renderStatusPanel(refs, state);
         }
         break;
       }
       case 'point': {
+        // Point = hover. Hit-test the real SVG node under the fingertip so
+        // the normal hover styling + tooltip kicks in.
         if (frame.pointerNormalized) {
           scene.previewNodeAtNormalized?.(frame.pointerNormalized.x, frame.pointerNormalized.y);
-          scene.setGestureLaser?.(
-            frame.pointerNormalized.x,
-            frame.pointerNormalized.y,
-            frame.confidence,
-          );
-        }
-
-        if (frame.stable && frame.holdFrames === 6 && frame.pointerNormalized) {
-          const selectedNode = scene.selectNodeAtNormalized?.(
-            frame.pointerNormalized.x,
-            frame.pointerNormalized.y,
-          );
-          if (selectedNode) {
-            state.lastAction = `Gesture point selected ${selectedNode.name}.`;
-            renderStatusPanel(refs, state);
-          }
         }
         break;
       }
       case 'pinch': {
-        scene.clearGestureLaser?.();
+        // Left-hand pinch still opens push-to-talk voice capture so the user
+        // can dictate while the right hand navigates.
         if (hasLeftHand(frame.hands) && frame.holdFrames === 6 && !state.voice.recording) {
           markInputActivity('voice');
           voiceController.start('gesture');
@@ -703,37 +872,48 @@ export function createApp(rootElement, options = {}) {
           break;
         }
 
-        if (frame.stable && frame.holdFrames === 6) {
-          state.lastAction = state.selectedNode
-            ? `Gesture confirm on ${state.selectedNode.name}.`
-            : 'Gesture confirm detected. Select a node to apply it to.';
-          renderStatusPanel(refs, state);
+        // Right-hand pinch = select the node at the fingertip, then dive into
+        // it if it has children. Fires once per stable hold.
+        if (frame.stable && frame.holdFrames === 6 && frame.pointerNormalized) {
+          const selectedNode = scene.selectNodeAtNormalized?.(
+            frame.pointerNormalized.x,
+            frame.pointerNormalized.y,
+          );
+          if (selectedNode) {
+            if (layerStore.hasChildren(selectedNode.id) && !state.layerTransitioning) {
+              void drillIn(selectedNode.id);
+              state.lastAction = `Gesture pinch dove into ${selectedNode.name}.`;
+            } else {
+              state.lastAction = `Gesture pinch selected ${selectedNode.name}.`;
+            }
+            renderStatusPanel(refs, state);
+          }
         }
         break;
       }
       case 'zoom': {
-        scene.clearGestureLaser?.();
         if (frame.stable && Math.abs(frame.zoomDelta) > 0.0025) {
           scene.zoomBy?.(frame.zoomDelta * (frame.sensitivityMultiplier ?? 1));
         }
         break;
       }
       case 'swipe': {
-        scene.clearGestureLaser?.();
+        // Swipe = orbit the stage in the swipe direction. Fires once per
+        // swipe event so the camera nudges in a single step.
         if (frame.holdFrames === 2) {
-          syncSelection(null);
-          scene.clearGesturePreview?.();
-          state.warnings = [];
-          state.lastAction = `Gesture swipe ${frame.swipeDirection ?? ''} dismissed the active focus.`
-            .trim();
-          renderNodePanel(refs, state);
+          const direction = frame.swipeDirection ?? '';
+          const nudge = { x: 0, y: 0 };
+          if (direction === 'left') nudge.x = -0.22;
+          else if (direction === 'right') nudge.x = 0.22;
+          else if (direction === 'up') nudge.y = -0.22;
+          else if (direction === 'down') nudge.y = 0.22;
+          scene.orbitBy?.(nudge.x, nudge.y, 1);
+          state.lastAction = `Gesture swipe ${direction} orbited the stack.`;
           renderStatusPanel(refs, state);
-          scene.refreshVisuals?.();
         }
         break;
       }
       default:
-        scene.clearGestureLaser?.();
         break;
     }
   }
@@ -765,6 +945,20 @@ export function createApp(rootElement, options = {}) {
         ? 'Layout frozen. Press Space again to resume the nebula drift.'
         : 'Layout resumed. Force simulation is live again.';
       renderStatusPanel(refs, state);
+      return;
+    }
+
+    if (event.key === 'Enter' && !isTextInput && state.selectedNode) {
+      markInputActivity('keyboard');
+      event.preventDefault();
+      void drillIn(state.selectedNode.id);
+      return;
+    }
+
+    if ((event.key === 'Backspace' || event.key === 'Backspace ') && !isTextInput) {
+      markInputActivity('keyboard');
+      event.preventDefault();
+      void drillOut();
       return;
     }
 
@@ -811,7 +1005,7 @@ export function createApp(rootElement, options = {}) {
     scene.refreshVisuals();
     state.lastAction = 'Camera reset to the default orbit and temporary selection cleared.';
     renderTooltip(refs, state);
-    renderNodePanel(refs, state);
+    renderNodePanel(refs, state, { drillIn });
     renderStatusPanel(refs, state);
   }
 
@@ -844,6 +1038,50 @@ export function createApp(rootElement, options = {}) {
     state.selectedLinkIds = firstDegreeLinks;
     state.secondDegreeNeighborIds = secondDegreeNodes;
     state.secondDegreeLinkIds = secondDegreeLinks;
+  }
+}
+
+function renderBreadcrumb(refs, state, handlers) {
+  if (!refs.breadcrumb) {
+    return;
+  }
+
+  const crumbs = state.layerBreadcrumb ?? [];
+  const depth = state.layerDepth ?? 0;
+  const parts = crumbs
+    .map((crumb, index) => {
+      const isLast = index === crumbs.length - 1;
+      const classes = ['breadcrumb-chip'];
+      if (isLast) classes.push('breadcrumb-chip--current');
+      if (crumb.type !== 'root') classes.push(`breadcrumb-chip--${crumb.type}`);
+      const attr = isLast
+        ? 'aria-current="location"'
+        : `data-breadcrumb-target="${escapeHtml(String(crumb.id ?? ''))}"`;
+      const indexMarker = index === 0 ? 'Root' : `L${index}`;
+      const label = `<span class="breadcrumb-chip__index">${escapeHtml(indexMarker)}</span>
+        <span class="breadcrumb-chip__label">${escapeHtml(crumb.name)}</span>`;
+      return `<button type="button" class="${classes.join(' ')}" ${attr}>${label}</button>`;
+    })
+    .join('<span class="breadcrumb-sep" aria-hidden="true">›</span>');
+
+  const drillButton = depth > 0
+    ? `<button type="button" class="ghost-button breadcrumb-surface" data-breadcrumb-surface>Surface</button>`
+    : '';
+
+  refs.breadcrumb.innerHTML = `<div class="breadcrumb-path">${parts}</div>${drillButton}`;
+
+  refs.breadcrumb.querySelectorAll('[data-breadcrumb-target]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const targetId = button.getAttribute('data-breadcrumb-target');
+      const normalized = targetId === '' ? null : targetId;
+      void handlers.popToLayer(normalized);
+    });
+  });
+  const surfaceButton = refs.breadcrumb.querySelector('[data-breadcrumb-surface]');
+  if (surfaceButton) {
+    surfaceButton.addEventListener('click', () => {
+      void handlers.drillOut();
+    });
   }
 }
 
@@ -892,6 +1130,10 @@ function renderStatusPanel(refs, state) {
       <div>
         <dt>Voice</dt>
         <dd>${formatVoiceState(state.voice)}</dd>
+      </div>
+      <div>
+        <dt>Layer</dt>
+        <dd>${formatLayerLabel(state)}</dd>
       </div>
     </dl>
     <section class="status-block">
@@ -953,20 +1195,22 @@ function renderStatusPanel(refs, state) {
   `;
 }
 
-function renderNodePanel(refs, state) {
+function renderNodePanel(refs, state, handlers = {}) {
   if (!state.selectedNode) {
     refs.nodePanel.innerHTML = `
       <span class="eyebrow">Node Inspector</span>
       <h2>No node selected</h2>
       <p>
-        Hover a node to inspect its label, then click it to lock details here. The graph query
-        bar now updates the visualized Neo4j subgraph without leaving this screen.
+        Hover a node to inspect its label, then click to lock details. Double-click (or press
+        Enter) a container node to dive into its sub-layer; use Backspace to surface back.
       </p>
     `;
     return;
   }
 
   const node = state.selectedNode;
+  const childCount = Array.isArray(node.childIds) ? node.childIds.length : 0;
+  const drillable = childCount > 0;
 
   refs.nodePanel.innerHTML = `
     <span class="eyebrow">${escapeHtml(formatTypeLabel(node.type))}</span>
@@ -986,11 +1230,23 @@ function renderNodePanel(refs, state) {
         <dd>${formatPercent(node.signalStrength)}</dd>
       </div>
       <div>
-        <dt>Updated</dt>
-        <dd>${escapeHtml(node.updatedAt)}</dd>
+        <dt>Contains</dt>
+        <dd>${drillable ? `${childCount} sub-nodes` : 'Leaf'}</dd>
       </div>
     </dl>
+    ${
+      drillable
+        ? `<button type="button" class="ghost-button node-panel__dive" data-node-dive>Dive into ${escapeHtml(node.name)}</button>`
+        : ''
+    }
   `;
+
+  const diveButton = refs.nodePanel.querySelector('[data-node-dive]');
+  if (diveButton && handlers.drillIn) {
+    diveButton.addEventListener('click', () => {
+      void handlers.drillIn(node.id);
+    });
+  }
 }
 
 function renderTooltip(refs, state) {
@@ -1007,6 +1263,78 @@ function renderTooltip(refs, state) {
     ))}</span>
   `;
   refs.tooltip.style.transform = `translate(${state.pointer.x + 18}px, ${state.pointer.y - 18}px)`;
+}
+
+function createSceneShim(getCard, getStage, callbacks = {}) {
+  const noop = () => {};
+  const {
+    onHoverNodeFromGesture = noop,
+    onSelectNodeFromGesture = noop,
+    getGraphRoot = () => null,
+  } = callbacks;
+
+  // Map a webcam-normalized pointer (0..1) to a DOM element on screen, then
+  // walk up to find the SVG node group. The fingertip coords are mirrored
+  // horizontally so user-right = screen-right in the mirrored PIP mental
+  // model.
+  function findNodeAtGesturePointer(nx, ny) {
+    if (typeof document === 'undefined' || typeof document.elementFromPoint !== 'function') {
+      return null;
+    }
+    const root = getGraphRoot();
+    const rect = root?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return null;
+    const mirroredX = 1 - clamp01(nx);
+    const screenX = rect.left + mirroredX * rect.width;
+    const screenY = rect.top + clamp01(ny) * rect.height;
+    const hit = document.elementFromPoint(screenX, screenY);
+    if (!hit) return null;
+    const group = hit.closest('.layer-card__node');
+    if (!group) return null;
+    const id = group.dataset?.nodeId;
+    return id ?? null;
+  }
+
+  return {
+    refreshVisuals() {
+      const stage = getStage();
+      if (stage) stage.refreshVisuals();
+      else getCard()?.refreshVisuals?.();
+    },
+    focusNode(node) {
+      getCard()?.focusNode?.(node);
+    },
+    resetCamera() {
+      getStage()?.resetCamera?.();
+    },
+    setPaused() {
+      /* 2D stage is static per-layer; no animation loop to pause */
+    },
+    zoomBy(delta) {
+      getStage()?.zoomBy?.(delta);
+    },
+    orbitBy(dx, dy, strength) {
+      getStage()?.orbitBy?.(dx, dy, strength);
+    },
+    clearGestureLaser: noop,
+    clearGesturePreview: noop,
+    setGestureLaser: noop,
+    previewNodeAtNormalized(nx, ny) {
+      const id = findNodeAtGesturePointer(nx, ny);
+      onHoverNodeFromGesture(id);
+    },
+    selectNodeAtNormalized(nx, ny) {
+      const id = findNodeAtGesturePointer(nx, ny);
+      return onSelectNodeFromGesture(id);
+    },
+    destroy() {
+      /* stage owns lifecycle */
+    },
+  };
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
 }
 
 function createSelectionIndex(links) {
@@ -1123,6 +1451,17 @@ function formatTrackingBudget(handTracking) {
   return handTracking.gestureIdle
     ? `${budget}. Gesture idle detected, so mouse and keyboard remain primary.`
     : `${budget}. Combined tracking is running within the live session.`;
+}
+
+function formatLayerLabel(state) {
+  const depth = state.layerDepth ?? 0;
+  if (depth === 0) {
+    return 'Root';
+  }
+  const crumbs = state.layerBreadcrumb ?? [];
+  const current = crumbs[crumbs.length - 1];
+  const name = current?.name ?? 'Layer';
+  return `L${depth} · ${String(name).slice(0, 16)}`;
 }
 
 function formatVoiceState(voice) {

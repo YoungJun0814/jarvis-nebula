@@ -2,17 +2,45 @@ import { describe, expect, it } from 'vitest';
 
 import { createApp } from './createApp.js';
 
-function createGraphFactoryStub() {
-  return () => ({
-    clearGestureLaser() {},
-    clearGesturePreview() {},
-    destroy() {},
-    focusNode() {},
-    refreshVisuals() {},
-    resetCamera() {},
-    setPaused() {},
-    zoomBy() {},
-  });
+function createStageFactoryStub() {
+  return () => {
+    let count = 0;
+    return {
+      addLayer() {
+        count += 1;
+        return { card: { destroy() {} } };
+      },
+      pushLayer() {
+        count += 1;
+        return Promise.resolve();
+      },
+      popLayer() {
+        count = Math.max(count - 1, 0);
+        return Promise.resolve(true);
+      },
+      reset() {
+        count = 1;
+      },
+      currentCard() {
+        return {
+          destroy() {},
+          focusNode() {},
+          refreshVisuals() {},
+          resetCamera() {},
+          setPaused() {},
+          zoomBy() {},
+        };
+      },
+      refreshVisuals() {},
+      orbitBy() {},
+      zoomBy() {},
+      resetCamera() {},
+      getLayerCount() {
+        return count;
+      },
+      destroy() {},
+    };
+  };
 }
 
 function createGraphFixture() {
@@ -42,17 +70,17 @@ function createGraphFixture() {
 }
 
 describe('createApp', () => {
-  it('renders the phase 7 shell and queues commands locally', () => {
+  it('renders the phase 9 shell and queues commands locally', () => {
     const root = document.createElement('div');
 
     createApp(root, {
       graphData: createGraphFixture(),
-      graphFactory: createGraphFactoryStub(),
+      stageFactory: createStageFactoryStub(),
     });
 
     expect(root.querySelector('h1')?.textContent).toContain('Jarvis Nebula');
     expect(root.textContent).toContain('Node Inspector');
-    expect(root.textContent).toContain('Phase 7 Interaction Polish');
+    expect(root.textContent).toContain('Phase 9 Liquid Glass');
     expect(root.textContent).toContain('Mic');
 
     const input = root.querySelector('#command-input');
@@ -115,7 +143,7 @@ describe('createApp', () => {
 
     createApp(root, {
       graphData: createGraphFixture(),
-      graphFactory: createGraphFactoryStub(),
+      stageFactory: createStageFactoryStub(),
       graphApi,
       remoteGraphEnabled: true,
     });
@@ -137,7 +165,7 @@ describe('createApp', () => {
 
     createApp(root, {
       graphData: createGraphFixture(),
-      graphFactory: createGraphFactoryStub(),
+      stageFactory: createStageFactoryStub(),
     });
 
     const helpOverlay = root.querySelector('[data-help-overlay]');
@@ -162,7 +190,7 @@ describe('createApp', () => {
 
     createApp(root, {
       graphData: createGraphFixture(),
-      graphFactory: createGraphFactoryStub(),
+      stageFactory: createStageFactoryStub(),
     });
 
     const helpOverlay = root.querySelector('[data-help-overlay]');

@@ -1,4 +1,7 @@
 const UI_COMMANDS = [
+  { id: 'dive_in', pattern: /\b(dive in|dive into|enter layer|open layer|drill in|drill down)\b/ },
+  { id: 'surface', pattern: /\b(surface up|surface|pop layer|go up a layer|exit layer)\b/ },
+  { id: 'surface_all', pattern: /\b(go to root|go home|root layer|all the way out)\b/ },
   { id: 'reset', pattern: /\b(reset|reset view)\b/ },
   { id: 'zoom_in', pattern: /\b(zoom in|move closer|closer)\b/ },
   { id: 'zoom_out', pattern: /\b(zoom out|move back|farther|further)\b/ },
