@@ -1,0 +1,33 @@
+# Tauri desktop shell for Jarvis Nebula.
+#
+# Stage 0: thin wrapper that loads the Vite dev server / built dist directory
+# inside a native webview. The only IPC command exposed is `health` — it
+# echoes `nebula_core::health()` so the frontend can prove the Rust side is
+# reachable. Real IPC surfaces arrive in Stage 1.
+
+[package]
+name = "jarvis-nebula-shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Tauri desktop shell for Jarvis Nebula."
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+nebula-core = { path = "../../packages/nebula-core" }
+
+[features]
+# The "custom-protocol" feature is enabled in production builds to serve the
+# frontend from the app bundle instead of the Vite dev server.
+custom-protocol = ["tauri/custom-protocol"]

@@ -62,3 +62,11 @@ __pycache__/
 .mypy_cache/
 .coverage
 htmlcov/
+
+# --- Rust / Tauri ---
+target/
+**/*.rs.bk
+Cargo.lock.bak
+frontend/src-tauri/gen/
+frontend/src-tauri/target/
+packages/*/target/

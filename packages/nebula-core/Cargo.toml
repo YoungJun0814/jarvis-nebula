@@ -1,0 +1,25 @@
+# nebula-core
+#
+# OS-interface primitives for Jarvis Nebula.
+#
+# Stage 0 scope: empty skeleton with a health-check function and tests, so
+# the workspace compiles and CI has a trivial target. Real fs / git / shell
+# modules are added in Stage 1 (see docs/ROADMAP_DESKTOP.md).
+
+[package]
+name = "nebula-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Core OS-interface crate (filesystem, git, shell, watcher) for Jarvis Nebula."
+
+[lib]
+name = "nebula_core"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

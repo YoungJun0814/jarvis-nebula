@@ -1,0 +1,45 @@
+# Rust workspace manifest for Jarvis Nebula.
+#
+# Members:
+#   - frontend/src-tauri : the Tauri desktop shell.
+#   - packages/nebula-core : OS-interface crate (fs, git, shell, watch, ...).
+#
+# Everything is "post-code OS" infrastructure — see docs/ROADMAP_DESKTOP.md.
+
+[workspace]
+resolver = "2"
+members = [
+    "frontend/src-tauri",
+    "packages/nebula-core",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/YoungJun0814/jarvis-nebula"
+rust-version = "1.77"
+
+[workspace.dependencies]
+# Shared across Tauri shell and nebula-core.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Stage 1 targets (not yet wired — kept as canonical version pins).
+notify = "6"
+ignore = "0.4"
+git2 = { version = "0.18", default-features = false }
+portable-pty = "0.8"
+
+[profile.release]
+# Prefer smaller binaries over aggressive inlining during the desktop pivot;
+# we can re-tune once Stage 1 benchmarks are in.
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+strip = true

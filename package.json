@@ -1,6 +1,7 @@
 {
   "name": "jarvis-nebula-workspace",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "npm --prefix frontend run dev -- --open",
     "dev:frontend": "npm --prefix frontend run dev",
@@ -8,6 +9,10 @@
     "build": "npm --prefix frontend run build",
     "test": "npm --prefix frontend run test",
     "test:e2e": "npm --prefix frontend run test:e2e",
-    "test:backend": "cd backend && python -m pytest"
+    "test:backend": "cd backend && python -m pytest",
+    "tauri": "npm --prefix frontend run tauri --",
+    "tauri:dev": "npm --prefix frontend run tauri:dev",
+    "tauri:build": "npm --prefix frontend run tauri:build",
+    "smoke:gemini": "node scripts/geminiSmoke.js"
   }
 }

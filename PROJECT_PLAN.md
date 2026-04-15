@@ -4,6 +4,20 @@
 
 ---
 
+> ## 📌 Current Roadmap (supersedes the phased plan below)
+>
+> As of **2026-04-16**, the project has pivoted from a knowledge-graph visualization tool to a **post-code-era developer OS**. The vision is: tasks + system state + LLM agents as first-class primitives, with files demoted to a drillable layer. Voice and gesture today; BCI when consumer hardware arrives.
+>
+> **Active planning documents:**
+>
+> - [`docs/ROADMAP_DESKTOP.md`](./docs/ROADMAP_DESKTOP.md) — Stage 0 → 8 execution plan for what we ship on desktops now (no BCI).
+> - [`docs/ROADMAP_BCI_FUTURE.md`](./docs/ROADMAP_BCI_FUTURE.md) — How BCI plugs into the architecture when it becomes viable (~2030).
+> - [`docs/adr/`](./docs/adr/) — Architecture decision records for this pivot.
+>
+> The phased plan below is preserved as historical context. The MVP built through "Phase 9 Liquid Glass" is tagged `legacy/phase-mvp`.
+
+---
+
 ## Table of Contents
 
 1. [Vision & Core Principles](#1-vision--core-principles)

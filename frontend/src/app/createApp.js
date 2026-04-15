@@ -540,7 +540,6 @@ export function createApp(rootElement, options = {}) {
       return;
     }
     while (stage && stage.getLayerCount() > 1 && layerStack.getCurrentParentId() !== normalized) {
-      // eslint-disable-next-line no-await-in-loop
       await drillOut();
     }
   }
