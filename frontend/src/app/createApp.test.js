@@ -131,4 +131,71 @@ describe('createApp', () => {
     expect(root.textContent).toContain('Neo4j live graph');
     expect(root.textContent).toContain('Focused the graph on archive documents.');
   });
+
+  it('opens and closes the help overlay from keyboard and button input', () => {
+    const root = document.createElement('div');
+
+    createApp(root, {
+      graphData: createGraphFixture(),
+      graphFactory: createGraphFactoryStub(),
+    });
+
+    const helpOverlay = root.querySelector('[data-help-overlay]');
+    const closeButton = root.querySelector('[data-help-close]');
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '?',
+        bubbles: true,
+      }),
+    );
+
+    expect(helpOverlay.hidden).toBe(false);
+
+    closeButton.click();
+
+    expect(helpOverlay.hidden).toBe(true);
+  });
+
+  it('closes the help overlay with Escape and backdrop pointer input', () => {
+    const root = document.createElement('div');
+
+    createApp(root, {
+      graphData: createGraphFixture(),
+      graphFactory: createGraphFactoryStub(),
+    });
+
+    const helpOverlay = root.querySelector('[data-help-overlay]');
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '?',
+        bubbles: true,
+      }),
+    );
+    expect(helpOverlay.hidden).toBe(false);
+
+    helpOverlay.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+      }),
+    );
+    expect(helpOverlay.hidden).toBe(true);
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '?',
+        bubbles: true,
+      }),
+    );
+    expect(helpOverlay.hidden).toBe(false);
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+      }),
+    );
+    expect(helpOverlay.hidden).toBe(true);
+  });
 });

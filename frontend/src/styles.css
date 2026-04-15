@@ -246,15 +246,24 @@ input {
   padding: 24px;
   background: rgba(2, 7, 14, 0.62);
   backdrop-filter: blur(12px);
+  pointer-events: auto;
+  isolation: isolate;
 }
 
 .help-card {
+  position: relative;
+  z-index: 1;
   width: min(560px, 100%);
   padding: 22px 24px 24px;
   border-radius: 28px;
   border: 1px solid rgba(112, 214, 255, 0.2);
   background: rgba(5, 11, 22, 0.92);
   box-shadow: var(--panel-shadow);
+  pointer-events: auto;
+}
+
+.help-overlay[hidden] {
+  display: none !important;
 }
 
 .help-card h2 {

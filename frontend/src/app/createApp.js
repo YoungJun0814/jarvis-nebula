@@ -110,6 +110,7 @@ export function createApp(rootElement, options = {}) {
     handOverlay: rootElement.querySelector('[data-hand-overlay]'),
     helpOverlay: rootElement.querySelector('[data-help-overlay]'),
     helpCloseButton: rootElement.querySelector('[data-help-close]'),
+    helpCard: rootElement.querySelector('.help-card'),
     nodePanel: rootElement.querySelector('[data-node-panel]'),
     statusContent: rootElement.querySelector('[data-status-content]'),
     commandForm: rootElement.querySelector('[data-command-form]'),
@@ -265,8 +266,15 @@ export function createApp(rootElement, options = {}) {
   refs.handToggleButton.addEventListener('click', () => {
     void handleHandToggle();
   });
-  refs.helpCloseButton.addEventListener('click', () => {
-    toggleHelp(false);
+  refs.helpCloseButton.addEventListener('pointerdown', closeHelpOverlay);
+  refs.helpCloseButton.addEventListener('click', closeHelpOverlay);
+  refs.helpOverlay.addEventListener('pointerdown', (event) => {
+    if (event.target === refs.helpOverlay) {
+      closeHelpOverlay(event);
+    }
+  });
+  refs.helpCard.addEventListener('pointerdown', (event) => {
+    event.stopPropagation();
   });
   refs.voiceToggleButton.addEventListener('click', () => {
     markInputActivity('voice');
@@ -734,6 +742,13 @@ export function createApp(rootElement, options = {}) {
     const isTextInput =
       event.target instanceof HTMLElement && event.target.closest('input, textarea');
 
+    if (event.key === 'Escape' && state.helpOpen) {
+      markInputActivity('keyboard');
+      event.preventDefault();
+      toggleHelp(false);
+      return;
+    }
+
     if (event.key === '?' && !isTextInput) {
       markInputActivity('keyboard');
       event.preventDefault();
@@ -777,6 +792,12 @@ export function createApp(rootElement, options = {}) {
     state.helpOpen = typeof forceValue === 'boolean' ? forceValue : !state.helpOpen;
     refs.helpOverlay.hidden = !state.helpOpen;
     refs.helpOverlay.setAttribute('aria-hidden', String(!state.helpOpen));
+  }
+
+  function closeHelpOverlay(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    toggleHelp(false);
   }
 
   function handleReset() {
