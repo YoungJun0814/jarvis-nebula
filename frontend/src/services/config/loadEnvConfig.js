@@ -9,11 +9,18 @@
 // constructed identically from tests, smoke scripts, and the renderer.
 // See docs/ROADMAP_DESKTOP.md — Stage 0.
 
-const REQUIRED_KEYS = Object.freeze(['GEMINI_API_KEY']);
+// Stage 0 default provider is Cerebras (fast, free tier, OpenAI-compatible).
+// We only hard-require a key if no other provider key is present; the
+// provider factory handles "pick whichever key is set".
+const DEFAULT_REQUIRED_KEYS = Object.freeze([]);
 
 /**
+ * @typedef {'cerebras' | 'gemini'} LlmProviderName
+ *
  * @typedef {Object} NebulaConfig
- * @property {string} geminiApiKey        Google AI Studio API key.
+ * @property {string} cerebrasApiKey      Cerebras Cloud API key (preferred).
+ * @property {string} geminiApiKey        Google AI Studio API key (fallback).
+ * @property {LlmProviderName | ''} llmProvider   Explicit provider override.
  * @property {string} appName             Display name for the app.
  * @property {string=} neo4jUri           Optional — left over from the
  *                                        pre-pivot architecture; kept so the
@@ -67,7 +74,7 @@ function safeImportMetaEnv() {
  * @param {{ requireKeys?: readonly string[] }} [options]
  * @returns {NebulaConfig}
  */
-export function loadNebulaConfig({ requireKeys = REQUIRED_KEYS } = {}) {
+export function loadNebulaConfig({ requireKeys = DEFAULT_REQUIRED_KEYS } = {}) {
   const missing = [];
   const get = (key) => {
     const { value } = readEnv(key);
@@ -77,7 +84,11 @@ export function loadNebulaConfig({ requireKeys = REQUIRED_KEYS } = {}) {
     return value;
   };
 
+  const cerebrasApiKey = get('CEREBRAS_API_KEY') ?? '';
   const geminiApiKey = get('GEMINI_API_KEY') ?? '';
+  const rawProvider = (get('LLM_PROVIDER') ?? '').trim().toLowerCase();
+  const llmProvider =
+    rawProvider === 'cerebras' || rawProvider === 'gemini' ? rawProvider : '';
   const appName = get('APP_NAME') ?? 'Jarvis Nebula';
   const neo4jUri = get('NEO4J_URI');
   const neo4jUsername = get('NEO4J_USERNAME');
@@ -90,10 +101,16 @@ export function loadNebulaConfig({ requireKeys = REQUIRED_KEYS } = {}) {
     );
   }
 
-  const { source } = readEnv('GEMINI_API_KEY');
+  // `source` is a coarse hint for diagnostics — prefer the canonical LLM
+  // key if present, otherwise fall back to whatever env surface is active.
+  const { source: cerebrasSource } = readEnv('CEREBRAS_API_KEY');
+  const { source: geminiSource } = readEnv('GEMINI_API_KEY');
+  const source = cerebrasApiKey ? cerebrasSource : geminiApiKey ? geminiSource : cerebrasSource;
 
   return {
+    cerebrasApiKey,
     geminiApiKey,
+    llmProvider,
     appName,
     neo4jUri,
     neo4jUsername,

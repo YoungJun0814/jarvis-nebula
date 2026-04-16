@@ -34,7 +34,7 @@ export function createGeminiClient({ apiKey, model = DEFAULT_MODEL, client } = {
   let resolvedKey = apiKey;
   let source = /** @type {'vite' | 'node'} */ ('node');
   if (!resolvedKey) {
-    const config = loadNebulaConfig();
+    const config = loadNebulaConfig({ requireKeys: ['GEMINI_API_KEY'] });
     resolvedKey = config.geminiApiKey;
     source = config.source;
   }
@@ -79,6 +79,7 @@ export function createGeminiClient({ apiKey, model = DEFAULT_MODEL, client } = {
     generate,
     getModel: () => model,
     getApiKeySource: () => source,
+    getProvider: () => /** @type {const} */ ('gemini'),
   };
 }
 

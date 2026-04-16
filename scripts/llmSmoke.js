@@ -1,39 +1,43 @@
 #!/usr/bin/env node
 /**
- * Gemini smoke test.
+ * LLM smoke test.
+ *
+ * Exercises the provider factory end-to-end: loads .env, picks the right
+ * backend (Cerebras by default), runs a short generation, and prints the
+ * latency + key source so Stage 0 wiring is verifiable from the CLI.
  *
  * Usage:
- *   node scripts/geminiSmoke.js "hello, who are you?"
- *
- * Reads GEMINI_API_KEY from either process.env or the project-root `.env`
- * file. Prints the model's reply, plus latency and key-source metadata, so
- * we can verify Stage 0 wiring end-to-end without booting the frontend.
+ *   node scripts/llmSmoke.js "your prompt here"
+ *   LLM_PROVIDER=gemini node scripts/llmSmoke.js "test"
  */
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-import { createGeminiClient } from '../frontend/src/services/llm/geminiClient.js';
+import { createLlmClient } from '../frontend/src/services/llm/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 
 loadDotEnvIfPresent(resolve(ROOT, '.env'));
 
-const prompt = process.argv.slice(2).join(' ').trim() ||
+const prompt =
+  process.argv.slice(2).join(' ').trim() ||
   'In one short sentence: what is Jarvis Nebula?';
 
 async function main() {
   const started = Date.now();
-  const client = createGeminiClient();
+  const client = createLlmClient();
   const reply = await client.generate({
     prompt,
-    system: 'You are helping smoke-test a new developer tool. Respond in one short sentence.',
+    system:
+      'You are helping smoke-test a new developer tool. Respond in one short sentence.',
   });
   const elapsed = Date.now() - started;
 
   console.log('---');
+  console.log(`provider       : ${client.getProvider()}`);
   console.log(`model          : ${client.getModel()}`);
   console.log(`key source     : ${client.getApiKeySource()}`);
   console.log(`latency        : ${elapsed}ms`);
@@ -45,8 +49,6 @@ async function main() {
 
 main().catch((err) => {
   const message = err?.message ?? String(err);
-  // Gemini returns a JSON blob as the message when the API rejects a call.
-  // Try to surface the most useful fragment without dumping the whole thing.
   let friendly = message;
   try {
     const parsed = JSON.parse(message);
@@ -55,14 +57,14 @@ main().catch((err) => {
       friendly = `${apiErr.code ?? '???'} ${apiErr.status ?? ''}: ${apiErr.message ?? '(no message)'}`;
       if (apiErr.details?.[0]?.reason === 'API_KEY_INVALID') {
         friendly +=
-          '\n\nHint: rotate GEMINI_API_KEY in .env. Get a new key at ' +
-          'https://aistudio.google.com/app/apikey';
+          '\n\nHint: the current LLM_PROVIDER key is rejected by its vendor. ' +
+          'Update .env or switch providers via LLM_PROVIDER=cerebras|gemini.';
       }
     }
   } catch {
     // message wasn't JSON — leave friendly as-is.
   }
-  console.error('geminiSmoke failed:', friendly);
+  console.error('llmSmoke failed:', friendly);
   process.exitCode = 1;
 });
 

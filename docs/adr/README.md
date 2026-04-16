@@ -47,3 +47,4 @@ The exact decision taken. State it as a single sentence first, then elaborate.
 |---|---|---|
 | 001 | [Shift from file primitive to task primitive](./001-shift-from-file-to-task-primitive.md) | Accepted |
 | 002 | [Tauri over Electron for desktop packaging](./002-tauri-over-electron.md) | Accepted |
+| 003 | [Cerebras as the default LLM provider](./003-cerebras-as-default-llm-provider.md) | Accepted |

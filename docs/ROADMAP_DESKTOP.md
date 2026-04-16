@@ -65,8 +65,8 @@ This document is the concrete execution plan to reach that vision on current con
 - [ ] Update `PROJECT_PLAN.md` to point at these new roadmaps.
 - [ ] Scaffold Tauri: `src-tauri/` directory, `tauri.conf.json`, Rust workspace.
 - [ ] Create `packages/nebula-core` Rust crate (empty skeleton + lib.rs).
-- [ ] Move Gemini API key from root `.env` into structured config loader.
-- [ ] Add `@google/genai` dependency and a thin `services/llm/geminiClient.js` wrapper with a single `generate({ prompt, system })` method.
+- [x] Move API keys from root `.env` into structured config loader.
+- [x] Add Cerebras (`@cerebras/cerebras_cloud_sdk`) and Gemini (`@google/genai`) clients behind a `services/llm/` provider factory with a common `generate({ prompt, system })` surface.
 - [ ] Verify Tauri dev server boots the existing Vite frontend with zero feature regressions.
 
 ### Deliverables
@@ -77,8 +77,8 @@ This document is the concrete execution plan to reach that vision on current con
 
 ### Exit Criteria
 - `npm run tauri:dev` opens a desktop window showing the existing Nebula scene.
-- `node scripts/geminiSmoke.js "hello"` prints a real Gemini response.
-- All 27 existing tests still pass.
+- `node scripts/llmSmoke.js "hello"` prints a real model response (Cerebras by default, Gemini via `LLM_PROVIDER=gemini`).
+- All existing tests still pass and new provider tests are green.
 
 ---
 

@@ -32,33 +32,64 @@ describe('loadNebulaConfig', () => {
     vi.restoreAllMocks();
   });
 
-  it('throws when required keys are missing', () => {
-    // Block the node fallback so we actually fail.
-    const processStub = vi.stubGlobal('process', { env: {} });
-    expect(() => loadNebulaConfig()).toThrowError(/GEMINI_API_KEY/);
-    processStub; // referenced to satisfy lints
+  it('returns empty keys and does not throw when nothing is required', () => {
+    vi.stubGlobal('process', { env: {} });
+    const cfg = loadNebulaConfig();
+    expect(cfg.cerebrasApiKey).toBe('');
+    expect(cfg.geminiApiKey).toBe('');
+    expect(cfg.llmProvider).toBe('');
+  });
+
+  it('throws when requireKeys flags a missing value', () => {
+    vi.stubGlobal('process', { env: {} });
+    expect(() => loadNebulaConfig({ requireKeys: ['CEREBRAS_API_KEY'] })).toThrowError(
+      /CEREBRAS_API_KEY/,
+    );
   });
 
   it('reads VITE_-prefixed keys when present', () => {
-    setEnv({ VITE_GEMINI_API_KEY: 'vite-key', VITE_APP_NAME: 'CustomApp' });
+    setEnv({
+      VITE_CEREBRAS_API_KEY: 'vite-cerebras',
+      VITE_GEMINI_API_KEY: 'vite-gemini',
+      VITE_LLM_PROVIDER: 'cerebras',
+      VITE_APP_NAME: 'CustomApp',
+    });
     const cfg = loadNebulaConfig();
-    expect(cfg.geminiApiKey).toBe('vite-key');
+    expect(cfg.cerebrasApiKey).toBe('vite-cerebras');
+    expect(cfg.geminiApiKey).toBe('vite-gemini');
+    expect(cfg.llmProvider).toBe('cerebras');
     expect(cfg.appName).toBe('CustomApp');
     expect(cfg.source).toBe('vite');
   });
 
+  it('normalizes LLM_PROVIDER and ignores unknown values', () => {
+    setEnv({
+      VITE_CEREBRAS_API_KEY: 'x',
+      VITE_LLM_PROVIDER: '  GEMINI  ',
+    });
+    expect(loadNebulaConfig().llmProvider).toBe('gemini');
+
+    setEnv({ VITE_LLM_PROVIDER: 'anthropic' });
+    expect(loadNebulaConfig().llmProvider).toBe('');
+  });
+
   it('falls back to process.env when Vite env is empty', () => {
     vi.stubGlobal('process', {
-      env: { GEMINI_API_KEY: 'node-key', APP_NAME: 'Fallback' },
+      env: {
+        CEREBRAS_API_KEY: 'node-cerebras',
+        LLM_PROVIDER: 'cerebras',
+        APP_NAME: 'Fallback',
+      },
     });
     const cfg = loadNebulaConfig();
-    expect(cfg.geminiApiKey).toBe('node-key');
+    expect(cfg.cerebrasApiKey).toBe('node-cerebras');
+    expect(cfg.llmProvider).toBe('cerebras');
     expect(cfg.appName).toBe('Fallback');
   });
 
   it('populates optional Neo4j fields without requiring them', () => {
     setEnv({
-      VITE_GEMINI_API_KEY: 'x',
+      VITE_CEREBRAS_API_KEY: 'x',
       VITE_NEO4J_URI: 'bolt://localhost:7687',
       VITE_NEO4J_USERNAME: 'neo4j',
       VITE_NEO4J_PASSWORD: 'secret',

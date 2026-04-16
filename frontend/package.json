@@ -23,6 +23,7 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@cerebras/cerebras_cloud_sdk": "^1.64.1",
     "@google/genai": "^1.50.1",
     "@mediapipe/tasks-vision": "^0.10.34",
     "@tauri-apps/api": "^2.10.1",

@@ -13,6 +13,6 @@
     "tauri": "npm --prefix frontend run tauri --",
     "tauri:dev": "npm --prefix frontend run tauri:dev",
     "tauri:build": "npm --prefix frontend run tauri:build",
-    "smoke:gemini": "node scripts/geminiSmoke.js"
+    "smoke:llm": "node scripts/llmSmoke.js"
   }
 }
